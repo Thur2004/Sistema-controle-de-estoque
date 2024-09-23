@@ -1,7 +1,7 @@
 import flet as ft
-import qrcode
 from io import BytesIO
-from base64 import b64encode
+import qrcode
+import base64
 
 # Dicionário de traduções
 translations = {
@@ -52,6 +52,8 @@ translations = {
         "supplier_contact_label": "Contact",
         "scan_qr_code": "Scan QR Code",
         "input_product_code": "Enter product code",
+        "product_list_title": "Product List",
+        "register_button_text": "Register",
     },
     "es": {
         "title": "Control de Inventario",
@@ -73,6 +75,8 @@ translations = {
         "supplier_contact_label": "Contacto",
         "scan_qr_code": "Escanear QR Code",
         "input_product_code": "Ingrese el código del producto",
+        "product_list_title": "Lista de Productos",
+        "register_button_text": "Registrar",
     }
 }
 
@@ -160,6 +164,7 @@ def main(page: ft.Page):
         if name and quantity.isdigit():
             products.append({"name": name, "quantity": int(quantity)})
             refresh_product_list()
+            show_qr_code(name)
             close_product_dialog()
 
     def edit_product(index, name, quantity):
@@ -189,32 +194,28 @@ def main(page: ft.Page):
         page.overlay.append(product_dialog)
         page.update()
 
-    def generate_qr_code(name):
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(name)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
+    def generate_qr_code(data):
+        qr = qrcode.make(data)
         buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        return b64encode(buffered.getvalue()).decode('utf-8')
+        qr.save(buffered, format="PNG")  # Salva como PNG
+        return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def show_qr_code(name):
         qr_image = generate_qr_code(name)
         qr_dialog = ft.AlertDialog(
-            title=ft.Text("QR Code"),
-            content=ft.Column([
-                ft.Image(src=f"data:image/png;base64,{qr_image}", width=200, height=200),
+        title=ft.Text("QR Code"),
+        content=ft.Column(
+            [
+                ft.Image(src_base64=qr_image, width=200, height=200),  # Carrega o QR code
                 ft.Text("Este QR Code pode ser escaneado para identificar o produto."),
-            ]),
-            actions=[
-                ft.TextButton("Fechar", on_click=lambda e: close_qr_dialog(qr_dialog))
-            ]
-        )
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,  # Centraliza o conteúdo verticalmente
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,  # Centraliza o conteúdo horizontalmente
+            ),
+        actions=[
+            ft.TextButton("Fechar", on_click=lambda e: close_qr_dialog(qr_dialog))
+        ]
+    )
         page.overlay.append(qr_dialog)
         qr_dialog.open = True
         page.update()
@@ -256,7 +257,7 @@ def main(page: ft.Page):
         ]),
         actions=[
             ft.TextButton(translations[current_language]["register_button_text"], on_click=lambda e: add_product(product_dialog.content.controls[0].value, product_dialog.content.controls[1].value)),
-            ft.TextButton(translations[current_language]["generate_qr_code"], on_click=lambda e: show_qr_code(product_dialog.content.controls[0].value)),
+             ft.TextButton(translations[current_language]["generate_qr_code"], on_click=lambda e: show_qr_code(product_dialog.content.controls[0].value)),  # Botão para gerar QR Code
             ft.TextButton("Fechar", on_click=close_product_dialog)
         ]
     )
@@ -277,9 +278,6 @@ def main(page: ft.Page):
         page.overlay.append(edit_dialog)
         edit_dialog.open = True
         page.update()
-
-        
-        
 
     # Função para exibir a interface de Gestão de Usuários
     def show_user_management_page(e):
@@ -417,7 +415,6 @@ def main(page: ft.Page):
         # Lógica de leitura do QR Code pode ser implementada aqui
         # Exemplo fictício:
         print(f"Scanning QR Code for {action}...")
-        # Implementar a lógica real aqui...
         page.update()
 
     # Botão para alternar tema
