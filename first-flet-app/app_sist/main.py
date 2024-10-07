@@ -2,6 +2,8 @@ import flet as ft
 from io import BytesIO
 import qrcode
 import base64
+import numpy as np
+import cv2
 
 # Dicionário de traduções
 translations = {
@@ -54,6 +56,8 @@ translations = {
         "input_product_code": "Enter product code",
         "product_list_title": "Product List",
         "register_button_text": "Register",
+        "edit_button_text": "Edit",
+        "delete_button_text": "Delete",
     },
     "es": {
         "title": "Control de Inventario",
@@ -77,6 +81,8 @@ translations = {
         "input_product_code": "Ingrese el código del producto",
         "product_list_title": "Lista de Productos",
         "register_button_text": "Registrar",
+        "edit_button_text": "Editar",
+        "delete_button_text": "Borrar",
     }
 }
 
@@ -90,6 +96,8 @@ def main(page: ft.Page):
     
     # Declara a lista de produtos fora da função
     product_list = ft.Column()
+    
+    myresult = ft.Column()  # Para mostrar resultados do QR Code
 
     # Função para trocar de idioma
     def change_language(e):
@@ -140,7 +148,6 @@ def main(page: ft.Page):
             elevation=4,
             margin=10,
         )
-        
         
         
     def close_product_dialog(e=None):
@@ -194,14 +201,42 @@ def main(page: ft.Page):
         page.overlay.append(product_dialog)
         page.update()
 
+    def read_qrcode():
+        cap = cv2.VideoCapture(0)
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            detector = cv2.QRCodeDetector()
+            data, points, _ = detector.detectAndDecode(gray)
+
+            if data:
+                cv2.polylines(frame, [np.int32(points)], True, (255, 0, 0), 2, cv2.LINE_AA)
+                print(f"QR Code YOu Data is : {data}")
+                myresult.controls.append(ft.Text(data, size=25, weight="bold"))
+                page.update()
+
+                cap.release()
+                cv2.destroyAllWindows()
+                break
+            
+            cv2.imshow("QR CODE DETECTION", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+        if cap.isOpened():
+            cap.release()
+            cv2.destroyAllWindows()
+
     def generate_qr_code(data):
         qr = qrcode.make(data)
         buffered = BytesIO()
         qr.save(buffered, format="PNG")  # Salva como PNG
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    def show_qr_code(name):
-        qr_image = generate_qr_code(name)
+    def show_qr_code(name): # def está bugado mas n sei arrumar ainda
+        qr_image = generate_qr_code(name.value)
         qr_dialog = ft.AlertDialog(
         title=ft.Text("QR Code"),
         content=ft.Column(
@@ -390,6 +425,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.TextField(label=translations[current_language]["input_product_code"]),
             ft.ElevatedButton(translations[current_language]["scan_qr_code"], on_click=lambda e: scan_qr_code("exit")),
+            myresult
         ]),
         actions=[
             ft.TextButton("Fechar", on_click=lambda e: close_dialog(stock_exit_dialog)),
@@ -401,6 +437,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.TextField(label=translations[current_language]["input_product_code"]),
             ft.ElevatedButton(translations[current_language]["scan_qr_code"], on_click=lambda e: scan_qr_code("entry")),
+            myresult
         ]),
         actions=[
             ft.TextButton("Fechar", on_click=lambda e: close_dialog(stock_entry_dialog)),
@@ -412,10 +449,7 @@ def main(page: ft.Page):
         page.update()
 
     def scan_qr_code(action):
-        # Lógica de leitura do QR Code pode ser implementada aqui
-        # Exemplo fictício:
-        print(f"Scanning QR Code for {action}...")
-        page.update()
+        read_qrcode()  # Chama a função de leitura do QR Code
 
     # Botão para alternar tema
     theme_toggle_button = ft.IconButton(
