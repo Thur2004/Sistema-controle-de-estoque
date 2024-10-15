@@ -89,6 +89,7 @@ translations = {
 # Função principal
 def main(page: ft.Page):
     # Estado inicial
+    page.qr_dialog = None
     page.title = translations["pt"]["title"]
     current_language = "pt"  # Padrão: Português
     page.theme_mode = ft.ThemeMode.LIGHT  # Padrão: Modo claro
@@ -96,7 +97,8 @@ def main(page: ft.Page):
     
     # Declara a lista de produtos fora da função
     product_list = ft.Column()
-    
+
+    qr_code_storage = [] # Array para armazenar os QR codes
     myresult = ft.Column()  # Para mostrar resultados do QR Code
 
     # Função para trocar de idioma
@@ -169,9 +171,9 @@ def main(page: ft.Page):
 
     def add_product(name, quantity):
         if name and quantity.isdigit():
-            products.append({"name": name, "quantity": int(quantity)})
+            qr_code = generate_qr_code(name)  # Gera o QR Code
+            products.append({"name": name, "quantity": int(quantity), "qr_code": qr_code})
             refresh_product_list()
-            show_qr_code(name)
             close_product_dialog()
 
     def edit_product(index, name, quantity):
@@ -192,6 +194,7 @@ def main(page: ft.Page):
                     ft.Text(f"{product['name']} - {product['quantity']}", size=16),
                     ft.ElevatedButton(translations[current_language]["edit_button_text"], on_click=lambda e, idx=index: edit_product_dialog(idx)),
                     ft.ElevatedButton(translations[current_language]["delete_button_text"], on_click=lambda e, idx=index: delete_product(idx)),
+                    ft.ElevatedButton("Ver QR Code", on_click=lambda e, idx=index: show_qr_code_for_product(idx)),  # Botão para ver QR Code
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
             )
         page.update()
@@ -233,31 +236,42 @@ def main(page: ft.Page):
         qr = qrcode.make(data)
         buffered = BytesIO()
         qr.save(buffered, format="PNG")  # Salva como PNG
-        return base64.b64encode(buffered.getvalue()).decode("utf-8")
+        return base64.b64encode(buffered.getvalue()).decode("utf-8")  # Retorna o QR code gerado
 
-    def show_qr_code(name): # def está bugado mas n sei arrumar ainda
-        qr_image = generate_qr_code(name.value)
-        qr_dialog = ft.AlertDialog(
-        title=ft.Text("QR Code"),
-        content=ft.Column(
-            [
-                ft.Image(src_base64=qr_image, width=200, height=200),  # Carrega o QR code
-                ft.Text("Este QR Code pode ser escaneado para identificar o produto."),
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,  # Centraliza o conteúdo verticalmente
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,  # Centraliza o conteúdo horizontalmente
-            ),
-        actions=[
-            ft.TextButton("Fechar", on_click=lambda e: close_qr_dialog(qr_dialog))
-        ]
-    )
-        page.overlay.append(qr_dialog)
-        qr_dialog.open = True
-        page.update()
+
+    def show_qr_code_for_product(index):
+        if index < len(products):
+            qr_image = products[index]["qr_code"]
+            
+            # Verifica se o diálogo já está aberto
+            if page.qr_dialog and page.qr_dialog.open:
+                return  # Evita abrir um novo diálogo se já estiver aberto
+
+            qr_dialog = ft.AlertDialog(
+                title=ft.Text("QR Code"),
+                content=ft.Column(
+                    [
+                        ft.Image(src_base64=qr_image, width=200, height=200),
+                        ft.Text("Este QR Code pode ser escaneado para identificar o produto."),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                actions=[
+                    ft.TextButton("Fechar", on_click=lambda e: close_qr_dialog(qr_dialog))
+                ]
+            )
+            
+            page.qr_dialog = qr_dialog  # Armazena o diálogo na página
+            page.overlay.append(qr_dialog)
+            qr_dialog.open = True
+            page.update()
 
     def close_qr_dialog(dialog):
-        dialog.open = False
-        page.update()
+        if dialog is not None:
+            dialog.open = False
+            page.qr_dialog = None  # Libera a referência do diálogo
+            page.update()
 
     def show_product_management_page(e):
         page.clean()
@@ -292,7 +306,6 @@ def main(page: ft.Page):
         ]),
         actions=[
             ft.TextButton(translations[current_language]["register_button_text"], on_click=lambda e: add_product(product_dialog.content.controls[0].value, product_dialog.content.controls[1].value)),
-             ft.TextButton(translations[current_language]["generate_qr_code"], on_click=lambda e: show_qr_code(product_dialog.content.controls[0].value)),  # Botão para gerar QR Code
             ft.TextButton("Fechar", on_click=close_product_dialog)
         ]
     )
