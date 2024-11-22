@@ -35,7 +35,12 @@ translations = {
         "product_list_title": "Lista de Produtos",
         "edit_button_text": "Editar",
         "delete_button_text": "Deletar",
-
+        "login": "Entrar",
+        "username": "Usuário",
+        "password": "Senha",
+        "login_error": "Usuário ou senha inválidos",
+        "logout": "Sair",
+        "login_button": "Entrar",
     },
     "en": {
         "title": "Inventory Control",
@@ -61,6 +66,12 @@ translations = {
         "register_button_text": "Register",
         "edit_button_text": "Edit",
         "delete_button_text": "Delete",
+        "login": "Login",
+        "username": "Username",
+        "password": "Password",
+        "login_error": "Invalid username or password",
+        "logout": "Logout",
+        "login_button": "Login",
     },
     "es": {
         "title": "Control de Inventario",
@@ -86,6 +97,12 @@ translations = {
         "register_button_text": "Registrar",
         "edit_button_text": "Editar",
         "delete_button_text": "Borrar",
+        "login": "Iniciar sesión",
+        "username": "Usuario",
+        "password": "Contraseña",
+        "login_error": "Usuario o contraseña inválidos",
+        "logout": "Cerrar sesión",
+        "login_button": "Iniciar sesión",
     }
 }
 
@@ -169,8 +186,212 @@ def init_database():
             cursor.close()
             connection.close()
 
+def create_default_admin():
+    try:
+        connection = create_db_connection()
+        cursor = connection.cursor()
+        
+        # Check if admin already exists
+        cursor.execute("SELECT * FROM users WHERE username = 'admin'")
+        if not cursor.fetchone():
+            # Create default admin user
+            cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+                ("admin", "admin123", "admin")
+            )
+            connection.commit()
+    except Error as e:
+        print(f"Error creating default admin: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
 # Função principal
 def main(page: ft.Page):
+    # Initial state setup
+    page.user = None
+    page.title = translations["pt"]["title"]
+    current_language = "pt"
+    page.theme_mode = ft.ThemeMode.LIGHT
+
+    def verify_credentials(username, password):
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
+            user = cursor.fetchone()
+            return user
+        except Error as e:
+            print(f"Error verifying credentials: {e}")
+            return None
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    def login(e):
+        user = verify_credentials(
+            username_field.value,
+            password_field.value
+        )
+        if user:
+            page.user = user
+            show_main_interface()
+        else:
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["login_error"]))
+            )
+        page.update()
+
+    def logout(e):
+        page.user = None
+        show_login_interface()
+        page.update()
+
+    def show_login_interface():
+        page.clean()
+        page.appbar = None
+        page.add(login_view)
+        # Clear credentials
+        username_field.value = ""
+        password_field.value = ""
+        page.update()
+
+    def show_main_interface():
+        page.clean()
+        page.appbar = appbar
+        page.add(main_content)
+        page.update()
+
+    # Login interface components
+    username_field = ft.TextField(
+        label=translations[current_language]["username"],
+        width=300
+    )
+    password_field = ft.TextField(
+        label=translations[current_language]["password"],
+        password=True,
+        width=300,
+        on_submit=login  # Allow login with Enter key
+    )
+
+    login_view = ft.Container(
+        content=ft.Column(
+            [
+                ft.Text(translations[current_language]["login"], size=32, weight="bold"),
+                username_field,
+                password_field,
+                ft.ElevatedButton(
+                    text=translations[current_language]["login_button"],
+                    on_click=login,
+                    width=300
+                )
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        alignment=ft.alignment.center,
+        expand=True
+    )
+
+    # Define change_language function before popup menu
+    def change_language(e):
+        nonlocal current_language
+        selected_language = e.control.data
+        current_language = selected_language
+        update_ui()  # Atualiza a interface com o novo idioma
+
+    # Then create popup menu
+    language_popup_menu = ft.PopupMenuButton(
+        icon=ft.icons.PUBLIC,
+        tooltip=translations[current_language]["language_button_text"],
+        items=[
+            ft.PopupMenuItem(text="Português", data="pt", on_click=change_language),
+            ft.PopupMenuItem(text="English", data="en", on_click=change_language),
+            ft.PopupMenuItem(text="Español", data="es", on_click=change_language),
+        ],
+    )
+
+    def toggle_theme(e):
+        page.theme_mode = ft.ThemeMode.DARK if page.theme_mode == ft.ThemeMode.LIGHT else ft.ThemeMode.LIGHT
+        page.update()
+
+    # Define theme toggle button before appbar
+    theme_toggle_button = ft.IconButton(
+        icon=ft.icons.BRIGHTNESS_6,
+        tooltip=translations[current_language]["theme_button_text"],
+        on_click=toggle_theme
+    )
+
+    # Define help dialog and its functions first
+    help_dialog = ft.AlertDialog(
+        title=ft.Text(translations[current_language]["help_button_text"]),
+        content=ft.Text(translations[current_language]["help_content"]),
+        actions=[ft.TextButton("Fechar", on_click=lambda e: close_help_dialog())]
+    )
+
+    def show_help_dialog(e):
+        help_dialog.open = True
+        page.overlay.append(help_dialog)
+        page.update()
+
+    def close_help_dialog():
+        help_dialog.open = False
+        page.update()
+
+    # Then define help button
+    help_button = ft.IconButton(
+        ft.icons.HELP, 
+        tooltip=translations[current_language]["help_button_text"], 
+        on_click=show_help_dialog
+    )
+
+    # Define movement history function before appbar
+    def show_movement_history(e):
+        page.clean()
+        page.appbar = appbar  # Keep the appbar
+
+        # Create a new movement history view
+        movement_history_view = ft.Column([
+            ft.Text("Histórico de Movimentações", size=30, weight="bold"),
+            movement_list,
+            ft.ElevatedButton("Voltar", on_click=go_back)
+        ], alignment=ft.MainAxisAlignment.START, expand=True)
+
+        page.add(movement_history_view)
+        refresh_movement_list()  # Update the movement list
+        page.update()
+
+    # Then create appbar using all the buttons
+    appbar = ft.AppBar(
+        title=ft.Text(translations[current_language]["title"]),
+        center_title=True,
+        actions=[
+            language_popup_menu, 
+            theme_toggle_button, 
+            help_button, 
+            ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin"),
+            ft.IconButton(
+                ft.icons.HISTORY, 
+                tooltip="Ver Histórico", 
+                on_click=show_movement_history
+            ),
+            ft.IconButton(  # Add logout button
+                ft.icons.LOGOUT,
+                tooltip=translations[current_language]["logout"],
+                on_click=logout
+            )
+        ],
+    )
+
+    # Initialize database and create default admin
+    init_database()
+    create_default_admin()
+    
+    # Start with login interface
+    show_login_interface()
+
     # Estado inicial
     page.qr_dialog = None
     page.title = translations["pt"]["title"]
@@ -495,36 +716,45 @@ def main(page: ft.Page):
 
     # Função para exibir o registro de movimentações
     def show_movement_history(e):
-        page.clean()  # Limpa a interface atual
-        page.appbar = appbar  # Define o appbar
-        refresh_movement_list()  # Atualiza a lista de movimentações
+        page.clean()
+        page.appbar = appbar  # Keep the appbar
+
+        # Create a new movement history view
+        movement_history_view = ft.Column([
+            ft.Text("Histórico de Movimentações", size=30, weight="bold"),
+            movement_list,
+            ft.ElevatedButton("Voltar", on_click=go_back)
+        ], alignment=ft.MainAxisAlignment.START, expand=True)
+
+        page.add(movement_history_view)
+        refresh_movement_list()  # Update the movement list
+        page.update()
 
     # Cria a interface de histórico de movimentações
-    movement_history_page = ft.Column(
-        [
-            ft.Text("Histórico de Movimentações", size=30),
-            movement_list,
-            # ft.ElevatedButton("Voltar", on_click=go_back)  # Botão para voltar ao menu principal
-        ],
-        alignment=ft.MainAxisAlignment.START,
-        expand=True
-    )
+    # movement_history_page = ft.Column(
+    #     [
+    #         ft.Text("Histórico de Movimentações", size=30),
+    #         movement_list,
+    #         # ft.ElevatedButton("Voltar", on_click=go_back)  # Botão para voltar ao menu principal
+    #     ],
+    #     alignment=ft.MainAxisAlignment.START,
+    #     expand=True
+    # )
     
-    page.add(movement_history_page)
-    page.update()
+    # page.add(movement_history_page)
+    # page.update()
 
     # # cards.append(
     # #     create_card(ft.icons.HISTORY, "history", show_movement_history)
     # # )
 
     def menu_page():
-    # Crie os componentes do menu principal
         return ft.Column(
             [
                 ft.Text("Sistema de Controle de Estoque", size=24, weight="bold"),
-                ft.ElevatedButton("Cadastro de Produtos", on_click=cadastro_produtos),
-                ft.ElevatedButton("Registro de Movimentações", on_click=registro_movimentacoes),
-                ft.ElevatedButton("Histórico de Movimentações", on_click=historico_movimentacoes),
+                ft.ElevatedButton("Cadastro de Produtos", on_click=show_product_management_page),
+                ft.ElevatedButton("Registro de Movimentações", on_click=show_movement_history),
+                ft.ElevatedButton("Histórico de Movimentações", on_click=show_movement_history),
             ]
         )
 
@@ -591,26 +821,13 @@ def main(page: ft.Page):
 
     # Função para exibir a interface de Gestão de Usuários
     def show_user_management_page(e):
-        page.clean()  # Limpa a página atual
-        
-        def go_back_to_main(e):
+        if page.user and page.user["role"] == "admin":
             page.clean()
-            page.appbar = appbar
-            page.add(main_content)  # Volta para a interface principal
-            page.update()
-
-        # Adiciona um botão para voltar à interface principal
-        user_management_page = ft.Column(
-            [
-                ft.Text("Gestão de Usuários", size=30),
-                ft.ElevatedButton("Voltar", on_click=go_back_to_main),
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            expand=True,
-        )
-
-        page.add(user_management_page)
-        page.update()
+            # Your existing user management page code...
+        else:
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text("Access denied. Administrators only."))
+            )
 
     # Função para exibir a caixa de diálogo de ajuda
     def show_help_dialog(e):
@@ -733,7 +950,17 @@ def main(page: ft.Page):
     appbar = ft.AppBar(
         title=ft.Text(translations[current_language]["title"]),
         center_title=True,
-        actions=[language_popup_menu, theme_toggle_button, help_button, ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin"),ft.IconButton(ft.icons.HISTORY, tooltip="Ver Histórico", on_click=show_movement_history)],
+        actions=[
+            language_popup_menu, 
+            theme_toggle_button, 
+            help_button, 
+            ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin"),
+            ft.IconButton(
+                ft.icons.HISTORY, 
+                tooltip="Ver Histórico", 
+                on_click=show_movement_history
+            )
+        ],
     )
 
     # Lista de cards
@@ -759,6 +986,20 @@ def main(page: ft.Page):
     page.appbar = appbar
     page.add(main_content)
     page.update()
+
+def delete_product(product_id):
+    try:
+        connection = create_db_connection()
+        cursor = connection.cursor()
+        cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+        connection.commit()
+        refresh_product_list()
+    except Error as e:
+        print(f"Error deleting product: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
 
 # Executar o app
 ft.app(target=main)
