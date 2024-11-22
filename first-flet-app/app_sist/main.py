@@ -4,6 +4,9 @@ import qrcode
 import base64
 import numpy as np
 import cv2
+from datetime import datetime
+import mysql.connector
+from mysql.connector import Error
 
 # Dicionário de traduções
 translations = {
@@ -86,6 +89,86 @@ translations = {
     }
 }
 
+# Database connection configuration
+def create_db_connection():
+    try:
+        connection = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",  # Default XAMPP password is empty
+            database="inventory_system"
+        )
+        return connection
+    except Error as e:
+        print(f"Error connecting to MySQL Database: {e}")
+        return None
+
+# Initialize database and tables
+def init_database():
+    try:
+        connection = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password=""
+        )
+        cursor = connection.cursor()
+        
+        # Create database if not exists
+        cursor.execute("CREATE DATABASE IF NOT EXISTS inventory_system")
+        cursor.execute("USE inventory_system")
+        
+        # Create products table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                quantity INT NOT NULL,
+                qr_code TEXT
+            )
+        """)
+        
+        # Create movements table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS movements (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                date DATETIME NOT NULL,
+                action_type VARCHAR(50) NOT NULL,
+                product_name VARCHAR(255) NOT NULL,
+                quantity INT NOT NULL
+            )
+        """)
+        
+        # Create suppliers table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS suppliers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                contact VARCHAR(100),
+                email VARCHAR(255),
+                address TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                role VARCHAR(50) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        connection.commit()
+    except Error as e:
+        print(f"Error initializing database: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
 # Função principal
 def main(page: ft.Page):
     # Estado inicial
@@ -100,6 +183,10 @@ def main(page: ft.Page):
 
     qr_code_storage = [] # Array para armazenar os QR codes
     myresult = ft.Column()  # Para mostrar resultados do QR Code
+
+    movements = []  # Lista global para armazenar cada movimentação de estoque
+    # Elemento UI para lista de movimentações
+    movement_list = ft.Column()
 
     # Função para trocar de idioma
     def change_language(e):
@@ -169,42 +256,80 @@ def main(page: ft.Page):
                 control.open = False
         page.update()
 
+    # Modified functions to use database instead of local storage
     def add_product(name, quantity):
         if name and quantity.isdigit():
-            qr_code = generate_qr_code(name)  # Gera o QR Code
-            products.append({"name": name, "quantity": int(quantity), "qr_code": qr_code})
-            refresh_product_list()
-            close_product_dialog()
+            try:
+                connection = create_db_connection()
+                cursor = connection.cursor()
+                
+                # Generate QR code with product information
+                qr_data = f"{name}|{quantity}"  # Format: "product_name|quantity"
+                qr_code = generate_qr_code(qr_data)
+                
+                cursor.execute(
+                    "INSERT INTO products (name, quantity, qr_code) VALUES (%s, %s, %s)",
+                    (name, int(quantity), qr_code)
+                )
+                connection.commit()
+                refresh_product_list()
+                close_product_dialog()
+            except Error as e:
+                print(f"Error adding product: {e}")
+            finally:
+                if connection.is_connected():
+                    cursor.close()
+                    connection.close()
 
-    def edit_product(index, name, quantity):
-        if name and quantity.isdigit():
-            products[index] = {"name": name, "quantity": int(quantity)}
-            refresh_product_list()
-            close_edit_dialog()
+    def process_qr_code_scan(action_type, qr_data):
+        try:
+            # Parse QR code data
+            product_name = qr_data.split('|')[0]
+            
+            connection = create_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Get current product quantity
+            cursor.execute("SELECT quantity FROM products WHERE name = %s", (product_name,))
+            result = cursor.fetchone()
+            
+            if result:
+                current_quantity = result['quantity']
+                
+                # Update quantity based on action type
+                if action_type == "exit":
+                    if current_quantity > 0:
+                        new_quantity = current_quantity - 1
+                        cursor.execute(
+                            "UPDATE products SET quantity = %s WHERE name = %s",
+                            (new_quantity, product_name)
+                        )
+                        record_movement("Saída", product_name, 1)
+                    else:
+                        print("Produto sem estoque!")
+                        return
+                else:  # entry
+                    new_quantity = current_quantity + 1
+                    cursor.execute(
+                        "UPDATE products SET quantity = %s WHERE name = %s",
+                        (new_quantity, product_name)
+                    )
+                    record_movement("Entrada", product_name, 1)
+                
+                connection.commit()
+                refresh_product_list()
+                
+            else:
+                print("Produto não encontrado!")
+                
+        except Error as e:
+            print(f"Error processing QR code: {e}")
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
 
-    def delete_product(index):
-        products.pop(index)
-        refresh_product_list()
-
-    def refresh_product_list():
-        product_list.controls.clear()
-        for index, product in enumerate(products):
-            product_list.controls.append(
-                ft.Row([
-                    ft.Text(f"{product['name']} - {product['quantity']}", size=16),
-                    ft.ElevatedButton(translations[current_language]["edit_button_text"], on_click=lambda e, idx=index: edit_product_dialog(idx)),
-                    ft.ElevatedButton(translations[current_language]["delete_button_text"], on_click=lambda e, idx=index: delete_product(idx)),
-                    ft.ElevatedButton("Ver QR Code", on_click=lambda e, idx=index: show_qr_code_for_product(idx)),  # Botão para ver QR Code
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-            )
-        page.update()
-
-    def add_product_dialog(e):
-        product_dialog.open = True
-        page.overlay.append(product_dialog)
-        page.update()
-
-    def read_qrcode():
+    def read_qrcode(action_type):
         cap = cv2.VideoCapture(0)
         while True:
             ret, frame = cap.read()
@@ -217,20 +342,101 @@ def main(page: ft.Page):
 
             if data:
                 cv2.polylines(frame, [np.int32(points)], True, (255, 0, 0), 2, cv2.LINE_AA)
-                print(f"QR Code YOu Data is : {data}")
-                myresult.controls.append(ft.Text(data, size=25, weight="bold"))
-                page.update()
-
+                print(f"QR Code Data: {data}")
+                
+                # Process the scanned QR code
+                process_qr_code_scan(action_type, data)
+                
                 cap.release()
                 cv2.destroyAllWindows()
                 break
-            
+                
             cv2.imshow("QR CODE DETECTION", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
+                
         if cap.isOpened():
             cap.release()
             cv2.destroyAllWindows()
+
+    def refresh_product_list():
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM products")
+            products = cursor.fetchall()
+            
+            product_list.controls.clear()
+            for product in products:
+                product_list.controls.append(
+                    ft.Row([
+                        ft.Text(f"{product['name']} - {product['quantity']}", size=16),
+                        ft.ElevatedButton(
+                            translations[current_language]["edit_button_text"],
+                            on_click=lambda e, id=product['id']: edit_product_dialog(id)
+                        ),
+                        ft.ElevatedButton(
+                            translations[current_language]["delete_button_text"],
+                            on_click=lambda e, id=product['id']: delete_product(id)
+                        ),
+                        ft.ElevatedButton(
+                            "Ver QR Code",
+                            on_click=lambda e, id=product['id']: show_qr_code_for_product(id)
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                )
+            page.update()
+        except Error as e:
+            print(f"Error refreshing product list: {e}")
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    def record_movement(action_type, product_name, quantity):
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor()
+            
+            cursor.execute(
+                "INSERT INTO movements (date, action_type, product_name, quantity) VALUES (%s, %s, %s, %s)",
+                (datetime.now(), action_type, product_name, quantity)
+            )
+            connection.commit()
+            refresh_movement_list()
+        except Error as e:
+            print(f"Error recording movement: {e}")
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    def refresh_movement_list():
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM movements ORDER BY date DESC")
+            movements = cursor.fetchall()
+            
+            movement_list.controls.clear()
+            for movement in movements:
+                movement_list.controls.append(
+                    ft.Row([
+                        ft.Text(f"{movement['date']} - {movement['action_type']} - {movement['product_name']} - {movement['quantity']}")
+                    ])
+                )
+            page.update()
+        except Error as e:
+            print(f"Error refreshing movement list: {e}")
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    def add_product_dialog(e):
+        product_dialog.open = True
+        page.overlay.append(product_dialog)
+        page.update()
 
     def generate_qr_code(data):
         qr = qrcode.make(data)
@@ -239,39 +445,95 @@ def main(page: ft.Page):
         return base64.b64encode(buffered.getvalue()).decode("utf-8")  # Retorna o QR code gerado
 
 
-    def show_qr_code_for_product(index):
-        if index < len(products):
-            qr_image = products[index]["qr_code"]
+    def show_qr_code_for_product(product_id):
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("SELECT name, qr_code FROM products WHERE id = %s", (product_id,))
+            product = cursor.fetchone()
             
-            # Verifica se o diálogo já está aberto
-            if page.qr_dialog and page.qr_dialog.open:
-                return  # Evita abrir um novo diálogo se já estiver aberto
+            if product:
+                qr_dialog = ft.AlertDialog(
+                    title=ft.Text(f"QR Code - {product['name']}"),
+                    content=ft.Column(
+                        [
+                            ft.Image(src_base64=product['qr_code'], width=200, height=200),
+                            ft.Text("Escaneie este QR Code para gerenciar o estoque do produto."),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    actions=[
+                        ft.TextButton("Fechar", on_click=lambda e: close_dialog(qr_dialog))
+                    ]
+                )
+                
+                page.overlay.append(qr_dialog)
+                qr_dialog.open = True
+                page.update()
+                
+        except Error as e:
+            print(f"Error showing QR code: {e}")
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
 
-            qr_dialog = ft.AlertDialog(
-                title=ft.Text("QR Code"),
-                content=ft.Column(
-                    [
-                        ft.Image(src_base64=qr_image, width=200, height=200),
-                        ft.Text("Este QR Code pode ser escaneado para identificar o produto."),
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                actions=[
-                    ft.TextButton("Fechar", on_click=lambda e: close_qr_dialog(qr_dialog))
-                ]
-            )
-            
-            page.qr_dialog = qr_dialog  # Armazena o diálogo na página
-            page.overlay.append(qr_dialog)
-            qr_dialog.open = True
-            page.update()
+    def close_dialog(dialog):
+        dialog.open = False
+        page.update()
 
-    def close_qr_dialog(dialog):
-        if dialog is not None:
-            dialog.open = False
-            page.qr_dialog = None  # Libera a referência do diálogo
-            page.update()
+    # Função para registrar saída do estoque (chamado na função scan_qr_code ao detectar saída)
+    def register_stock_exit(product_name, quantity):
+        record_movement("Saída", product_name, quantity)
+        refresh_movement_list()
+
+    # Função para registrar entrada no estoque (chamado na função scan_qr_code ao detectar entrada)
+    def register_stock_entry(product_name, quantity):
+        record_movement("Entrada", product_name, quantity)
+        refresh_movement_list()
+
+    # Função para exibir o registro de movimentações
+    def show_movement_history(e):
+        page.clean()  # Limpa a interface atual
+        page.appbar = appbar  # Define o appbar
+        refresh_movement_list()  # Atualiza a lista de movimentações
+
+    # Cria a interface de histórico de movimentações
+    movement_history_page = ft.Column(
+        [
+            ft.Text("Histórico de Movimentações", size=30),
+            movement_list,
+            # ft.ElevatedButton("Voltar", on_click=go_back)  # Botão para voltar ao menu principal
+        ],
+        alignment=ft.MainAxisAlignment.START,
+        expand=True
+    )
+    
+    page.add(movement_history_page)
+    page.update()
+
+    # # cards.append(
+    # #     create_card(ft.icons.HISTORY, "history", show_movement_history)
+    # # )
+
+    def menu_page():
+    # Crie os componentes do menu principal
+        return ft.Column(
+            [
+                ft.Text("Sistema de Controle de Estoque", size=24, weight="bold"),
+                ft.ElevatedButton("Cadastro de Produtos", on_click=cadastro_produtos),
+                ft.ElevatedButton("Registro de Movimentações", on_click=registro_movimentacoes),
+                ft.ElevatedButton("Histórico de Movimentações", on_click=historico_movimentacoes),
+            ]
+        )
+
+    # Função para voltar ao menu principal
+    def go_back(e):
+        page.clean()  # Limpa a interface atual
+        page.add(menu_page)  # Retorna para a página do menu principal
+        page.update()
+
 
     def show_product_management_page(e):
         page.clean()
@@ -424,45 +686,38 @@ def main(page: ft.Page):
     
     #saida e entrada de produto com qr code
     def show_stock_exit_dialog(e):
-        stock_exit_dialog.open = True
+        stock_exit_dialog = ft.AlertDialog(
+            title=ft.Text(translations[current_language]["stock_exit"]),
+            content=ft.Column([
+                ft.ElevatedButton(
+                    translations[current_language]["scan_qr_code"],
+                    on_click=lambda e: read_qrcode("exit")
+                )
+            ]),
+            actions=[
+                ft.TextButton("Fechar", on_click=lambda e: close_dialog(stock_exit_dialog))
+            ]
+        )
         page.overlay.append(stock_exit_dialog)
+        stock_exit_dialog.open = True
         page.update()
 
     def show_stock_entry_dialog(e):
-        stock_entry_dialog.open = True
+        stock_entry_dialog = ft.AlertDialog(
+            title=ft.Text(translations[current_language]["stock_entry"]),
+            content=ft.Column([
+                ft.ElevatedButton(
+                    translations[current_language]["scan_qr_code"],
+                    on_click=lambda e: read_qrcode("entry")
+                )
+            ]),
+            actions=[
+                ft.TextButton("Fechar", on_click=lambda e: close_dialog(stock_entry_dialog))
+            ]
+        )
         page.overlay.append(stock_entry_dialog)
+        stock_entry_dialog.open = True
         page.update()
-
-    stock_exit_dialog = ft.AlertDialog(
-        title=ft.Text(translations[current_language]["stock_exit"]),
-        content=ft.Column([
-            ft.TextField(label=translations[current_language]["input_product_code"]),
-            ft.ElevatedButton(translations[current_language]["scan_qr_code"], on_click=lambda e: scan_qr_code("exit")),
-            myresult
-        ]),
-        actions=[
-            ft.TextButton("Fechar", on_click=lambda e: close_dialog(stock_exit_dialog)),
-        ],
-    )
-
-    stock_entry_dialog = ft.AlertDialog(
-        title=ft.Text(translations[current_language]["stock_entry"]),
-        content=ft.Column([
-            ft.TextField(label=translations[current_language]["input_product_code"]),
-            ft.ElevatedButton(translations[current_language]["scan_qr_code"], on_click=lambda e: scan_qr_code("entry")),
-            myresult
-        ]),
-        actions=[
-            ft.TextButton("Fechar", on_click=lambda e: close_dialog(stock_entry_dialog)),
-        ],
-    )
-
-    def close_dialog(dialog):
-        dialog.open = False
-        page.update()
-
-    def scan_qr_code(action):
-        read_qrcode()  # Chama a função de leitura do QR Code
 
     # Botão para alternar tema
     theme_toggle_button = ft.IconButton(
@@ -478,7 +733,7 @@ def main(page: ft.Page):
     appbar = ft.AppBar(
         title=ft.Text(translations[current_language]["title"]),
         center_title=True,
-        actions=[language_popup_menu, theme_toggle_button, help_button, ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin")],
+        actions=[language_popup_menu, theme_toggle_button, help_button, ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin"),ft.IconButton(ft.icons.HISTORY, tooltip="Ver Histórico", on_click=show_movement_history)],
     )
 
     # Lista de cards
