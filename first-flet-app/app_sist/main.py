@@ -41,6 +41,26 @@ translations = {
         "login_error": "Usuário ou senha inválidos",
         "logout": "Sair",
         "login_button": "Entrar",
+        "user_list_title": "Lista de Usuários",
+        "add_user": "Adicionar Usuário",
+        "edit_user": "Editar Usuário",
+        "role_label": "Função",
+        "admin_role": "Administrador",
+        "user_role": "Usuário",
+        "confirm_delete": "Confirmar Exclusão",
+        "delete_user_message": "Tem certeza que deseja excluir este usuário?",
+        "yes": "Sim",
+        "no": "Não",
+        "please_login": "Por favor, faça login para acessar esta função",
+        "view_history": "Ver Histórico",
+        "close": "Fechar",
+        "movement_history": "Histórico de Movimentações",
+        "back": "Voltar",
+        "error_connecting": "Erro ao conectar ao banco de dados",
+        "error_adding_product": "Erro ao adicionar produto",
+        "error_updating_product": "Erro ao atualizar produto",
+        "error_deleting_product": "Erro ao deletar produto",
+        "access_denied": "Acesso negado. Apenas administradores.",
     },
     "en": {
         "title": "Inventory Control",
@@ -72,6 +92,27 @@ translations = {
         "login_error": "Invalid username or password",
         "logout": "Logout",
         "login_button": "Login",
+        "user_list_title": "User List",
+        "add_user": "Add User",
+        "edit_user": "Edit User",
+        "role_label": "Role",
+        "admin_role": "Administrator",
+        "user_role": "User",
+        "confirm_delete": "Confirm Deletion",
+        "delete_user_message": "Are you sure you want to delete this user?",
+        "yes": "Yes",
+        "no": "No",
+        "please_login": "Please login to access this feature",
+        "view_history": "View History",
+        "close": "Close",
+        "movement_history": "Movement History",
+        "back": "Back",
+        "error_connecting": "Error connecting to database",
+        "error_adding_product": "Error adding product",
+        "error_updating_product": "Error updating product",
+        "error_deleting_product": "Error deleting product",
+        "access_denied": "Access denied. Administrators only.",
+        "generate_qr_code": "Generate QR Code",
     },
     "es": {
         "title": "Control de Inventario",
@@ -103,6 +144,27 @@ translations = {
         "login_error": "Usuario o contraseña inválidos",
         "logout": "Cerrar sesión",
         "login_button": "Iniciar sesión",
+        "user_list_title": "Lista de Usuarios",
+        "add_user": "Agregar Usuario",
+        "edit_user": "Editar Usuario",
+        "role_label": "Rol",
+        "admin_role": "Administrador",
+        "user_role": "Usuario",
+        "confirm_delete": "Confirmar Eliminación",
+        "delete_user_message": "¿Estás seguro de que quieres eliminar este usuario?",
+        "yes": "Sí",
+        "no": "No",
+        "please_login": "Por favor, inicie sesión para acceder a esta función",
+        "view_history": "Ver Historial",
+        "close": "Cerrar",
+        "movement_history": "Historial de Movimientos",
+        "back": "Volver",
+        "error_connecting": "Error al conectar a la base de datos",
+        "error_adding_product": "Error al agregar producto",
+        "error_updating_product": "Error al actualizar producto",
+        "error_deleting_product": "Error al eliminar producto",
+        "access_denied": "Acceso denegado. Solo administradores.",
+        "generate_qr_code": "Generar Código QR",
     }
 }
 
@@ -260,7 +322,11 @@ def main(page: ft.Page):
 
     def show_main_interface():
         page.clean()
-        page.appbar = appbar
+        page.appbar = appbar  # Set appbar first
+        # Then update the admin button
+        admin_button = page.appbar.actions[3]
+        admin_button.icon = ft.icons.LOGOUT if page.user else ft.icons.LOGIN
+        admin_button.tooltip = translations[current_language]["logout"] if page.user else translations[current_language]["login"]
         page.add(main_content)
         page.update()
 
@@ -354,9 +420,9 @@ def main(page: ft.Page):
 
         # Create a new movement history view
         movement_history_view = ft.Column([
-            ft.Text("Histórico de Movimentações", size=30, weight="bold"),
+            ft.Text(translations[current_language]["movement_history"], size=30, weight="bold"),
             movement_list,
-            ft.ElevatedButton("Voltar", on_click=go_back)
+            ft.ElevatedButton(translations[current_language]["back"], on_click=go_back)
         ], alignment=ft.MainAxisAlignment.START, expand=True)
 
         page.add(movement_history_view)
@@ -371,16 +437,17 @@ def main(page: ft.Page):
             language_popup_menu, 
             theme_toggle_button, 
             help_button, 
-            ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin"),
+            ft.IconButton(
+                icon=ft.icons.LOGOUT if page.user else ft.icons.LOGIN,
+                tooltip=translations[current_language]["logout"] if page.user else translations[current_language]["login"],
+                on_click=lambda e: logout(e) if page.user else show_login_interface()
+            ),
             ft.IconButton(
                 ft.icons.HISTORY, 
-                tooltip="Ver Histórico", 
-                on_click=show_movement_history
-            ),
-            ft.IconButton(  # Add logout button
-                ft.icons.LOGOUT,
-                tooltip=translations[current_language]["logout"],
-                on_click=logout
+                tooltip=translations[current_language]["view_history"], 
+                on_click=lambda e: show_movement_history(e) if page.user else page.show_snack_bar(
+                    ft.SnackBar(content=ft.Text(translations[current_language]["please_login"]))
+                )
             )
         ],
     )
@@ -441,6 +508,14 @@ def main(page: ft.Page):
 
     # Função para criar cards clicáveis
     def create_card(icon, text_key, on_click):
+        def handle_click(e):
+            if not page.user:
+                page.show_snack_bar(
+                    ft.SnackBar(content=ft.Text(translations[current_language]["please_login"]))
+                )
+                return
+            on_click(e)
+
         return ft.Card(
             content=ft.Container(
                 content=ft.Column(
@@ -453,7 +528,7 @@ def main(page: ft.Page):
                 ),
                 alignment=ft.alignment.center,
                 padding=20,
-                on_click=on_click,  # Usar on_click no Container
+                on_click=handle_click,  # Use the wrapped handler
             ),
             elevation=4,
             margin=10,
@@ -675,17 +750,14 @@ def main(page: ft.Page):
             
             if product:
                 qr_dialog = ft.AlertDialog(
-                    title=ft.Text(f"QR Code - {product['name']}"),
-                    content=ft.Column(
-                        [
-                            ft.Image(src_base64=product['qr_code'], width=200, height=200),
-                            ft.Text("Escaneie este QR Code para gerenciar o estoque do produto."),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
+                    title=ft.Text(f"{translations[current_language]['generate_qr_code']} - {product['name']}"),
+                    content=ft.Column([
+                        ft.Image(src_base64=product['qr_code'], width=200, height=200),
+                        ft.Text(translations[current_language]["scan_qr_code"]),
+                    ]),
                     actions=[
-                        ft.TextButton("Fechar", on_click=lambda e: close_dialog(qr_dialog))
+                        ft.TextButton(translations[current_language]["close"], 
+                        on_click=lambda e: close_dialog(qr_dialog))
                     ]
                 )
                 
@@ -721,9 +793,9 @@ def main(page: ft.Page):
 
         # Create a new movement history view
         movement_history_view = ft.Column([
-            ft.Text("Histórico de Movimentações", size=30, weight="bold"),
+            ft.Text(translations[current_language]["movement_history"], size=30, weight="bold"),
             movement_list,
-            ft.ElevatedButton("Voltar", on_click=go_back)
+            ft.ElevatedButton(translations[current_language]["back"], on_click=go_back)
         ], alignment=ft.MainAxisAlignment.START, expand=True)
 
         page.add(movement_history_view)
@@ -776,7 +848,7 @@ def main(page: ft.Page):
             product_list,
             ft.Row([
                 ft.ElevatedButton(translations[current_language]["register_button_text"], on_click=add_product_dialog),
-                ft.ElevatedButton("Voltar", on_click=go_back)
+                ft.ElevatedButton(translations[current_language]["back"], on_click=go_back)
             ], alignment=ft.MainAxisAlignment.END)
         ], alignment=ft.MainAxisAlignment.START, expand=True)
 
@@ -823,7 +895,215 @@ def main(page: ft.Page):
     def show_user_management_page(e):
         if page.user and page.user["role"] == "admin":
             page.clean()
-            # Your existing user management page code...
+            page.appbar = appbar
+
+            # Create user list container
+            user_list = ft.Column()
+
+            def refresh_user_list():
+                try:
+                    connection = create_db_connection()
+                    cursor = connection.cursor(dictionary=True)
+                    cursor.execute("SELECT id, username, role FROM users")
+                    users = cursor.fetchall()
+                    
+                    user_list.controls.clear()
+                    for user in users:
+                        user_list.controls.append(
+                            ft.Row(
+                                [
+                                    ft.Text(f"{user['username']} ({user['role']})", size=16),
+                                    ft.Row(
+                                        [
+                                            ft.IconButton(
+                                                icon=ft.icons.EDIT,
+                                                tooltip=translations[current_language]["edit_user"],
+                                                on_click=lambda e, u=user: show_edit_user_dialog(u)
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.icons.DELETE,
+                                                tooltip=translations[current_language]["delete_button_text"],
+                                                on_click=lambda e, u=user: show_delete_user_dialog(u)
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                            )
+                        )
+                    page.update()
+                except Error as e:
+                    print(f"Error refreshing user list: {e}")
+                finally:
+                    if connection and connection.is_connected():
+                        cursor.close()
+                        connection.close()
+
+            def show_add_user_dialog(e):
+                username_field = ft.TextField(
+                    label=translations[current_language]["username"],
+                    width=300
+                )
+                password_field = ft.TextField(
+                    label=translations[current_language]["password"],
+                    password=True,
+                    width=300
+                )
+                role_dropdown = ft.Dropdown(
+                    label=translations[current_language]["role_label"],
+                    width=300,
+                    options=[
+                        ft.dropdown.Option("admin", translations[current_language]["admin_role"]),
+                        ft.dropdown.Option("user", translations[current_language]["user_role"])
+                    ],
+                    value="user"
+                )
+
+                def save_new_user(e):
+                    try:
+                        connection = create_db_connection()
+                        cursor = connection.cursor()
+                        cursor.execute(
+                            "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+                            (username_field.value, password_field.value, role_dropdown.value)
+                        )
+                        connection.commit()
+                        refresh_user_list()
+                        close_dialog(add_dialog)
+                    except Error as e:
+                        print(f"Error adding user: {e}")
+                        page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
+                    finally:
+                        if connection.is_connected():
+                            cursor.close()
+                            connection.close()
+
+                add_dialog = ft.AlertDialog(
+                    title=ft.Text(translations[current_language]["add_user"]),
+                    content=ft.Column([
+                        username_field,
+                        password_field,
+                        role_dropdown
+                    ], spacing=10),
+                    actions=[
+                        ft.TextButton(translations[current_language]["register_button_text"], on_click=save_new_user),
+                        ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(add_dialog))
+                    ]
+                )
+                page.overlay.append(add_dialog)
+                add_dialog.open = True
+                page.update()
+
+            def show_edit_user_dialog(user):
+                username_field = ft.TextField(
+                    label=translations[current_language]["username"],
+                    value=user["username"],
+                    width=300
+                )
+                password_field = ft.TextField(
+                    label=translations[current_language]["password"],
+                    password=True,
+                    width=300,
+                    hint_text="Leave blank to keep current password"
+                )
+                role_dropdown = ft.Dropdown(
+                    label=translations[current_language]["role_label"],
+                    width=300,
+                    options=[
+                        ft.dropdown.Option("admin", translations[current_language]["admin_role"]),
+                        ft.dropdown.Option("user", translations[current_language]["user_role"])
+                    ],
+                    value=user["role"]
+                )
+
+                def save_user_changes(e):
+                    try:
+                        connection = create_db_connection()
+                        cursor = connection.cursor()
+                        
+                        if password_field.value:  # If password was changed
+                            cursor.execute(
+                                "UPDATE users SET username = %s, password = %s, role = %s WHERE id = %s",
+                                (username_field.value, password_field.value, role_dropdown.value, user["id"])
+                            )
+                        else:  # If password wasn't changed
+                            cursor.execute(
+                                "UPDATE users SET username = %s, role = %s WHERE id = %s",
+                                (username_field.value, role_dropdown.value, user["id"])
+                            )
+                        
+                        connection.commit()
+                        refresh_user_list()
+                        close_dialog(edit_dialog)
+                    except Error as e:
+                        print(f"Error updating user: {e}")
+                        page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
+                    finally:
+                        if connection.is_connected():
+                            cursor.close()
+                            connection.close()
+
+                edit_dialog = ft.AlertDialog(
+                    title=ft.Text(translations[current_language]["edit_user"]),
+                    content=ft.Column([
+                        username_field,
+                        password_field,
+                        role_dropdown
+                    ], spacing=10),
+                    actions=[
+                        ft.TextButton(translations[current_language]["edit_button_text"], on_click=save_user_changes),
+                        ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(edit_dialog))
+                    ]
+                )
+                page.overlay.append(edit_dialog)
+                edit_dialog.open = True
+                page.update()
+
+            def show_delete_user_dialog(user):
+                def delete_user(e):
+                    try:
+                        connection = create_db_connection()
+                        cursor = connection.cursor()
+                        cursor.execute("DELETE FROM users WHERE id = %s", (user["id"],))
+                        connection.commit()
+                        refresh_user_list()
+                        close_dialog(delete_dialog)
+                    except Error as e:
+                        print(f"Error deleting user: {e}")
+                        page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
+                    finally:
+                        if connection.is_connected():
+                            cursor.close()
+                            connection.close()
+
+                delete_dialog = ft.AlertDialog(
+                    title=ft.Text(translations[current_language]["confirm_delete"]),
+                    content=ft.Text(translations[current_language]["delete_user_message"]),
+                    actions=[
+                        ft.TextButton(translations[current_language]["yes"], on_click=delete_user),
+                        ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(delete_dialog))
+                    ]
+                )
+                page.overlay.append(delete_dialog)
+                delete_dialog.open = True
+                page.update()
+
+            # Create the user management page layout
+            user_management_page = ft.Column([
+                ft.Row([
+                    ft.Text(translations[current_language]["user_list_title"], size=30, weight="bold"),
+                    ft.ElevatedButton(
+                        text=translations[current_language]["add_user"],
+                        on_click=show_add_user_dialog
+                    )
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                user_list,
+                ft.ElevatedButton("Voltar", on_click=go_back)
+            ], spacing=20)
+
+            page.add(user_management_page)
+            refresh_user_list()
+            page.update()
         else:
             page.show_snack_bar(
                 ft.SnackBar(content=ft.Text("Access denied. Administrators only."))
@@ -954,11 +1234,17 @@ def main(page: ft.Page):
             language_popup_menu, 
             theme_toggle_button, 
             help_button, 
-            ft.IconButton(ft.icons.ADMIN_PANEL_SETTINGS, tooltip="Admin"),
+            ft.IconButton(
+                icon=ft.icons.LOGOUT if page.user else ft.icons.LOGIN,
+                tooltip=translations[current_language]["logout"] if page.user else translations[current_language]["login"],
+                on_click=lambda e: logout(e) if page.user else show_login_interface()
+            ),
             ft.IconButton(
                 ft.icons.HISTORY, 
-                tooltip="Ver Histórico", 
-                on_click=show_movement_history
+                tooltip=translations[current_language]["view_history"], 
+                on_click=lambda e: show_movement_history(e) if page.user else page.show_snack_bar(
+                    ft.SnackBar(content=ft.Text(translations[current_language]["please_login"]))
+                )
             )
         ],
     )
@@ -986,6 +1272,14 @@ def main(page: ft.Page):
     page.appbar = appbar
     page.add(main_content)
     page.update()
+
+    # Add new function to handle admin button click
+    def handle_admin_click():
+        if page.user:
+            logout(None)  # Call logout function
+        else:
+            show_login_interface()
+        page.update()
 
 def delete_product(product_id):
     try:
