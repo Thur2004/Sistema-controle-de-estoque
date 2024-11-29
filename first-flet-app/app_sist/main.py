@@ -8,7 +8,7 @@ from datetime import datetime
 import mysql.connector
 from mysql.connector import Error
 
-# Dicionário de traduções
+# Dicionário global de traduções para suporte a múltiplos idiomas (PT, EN, ES)
 translations = {
     "pt": {
         "title": "Controle de Estoque",
@@ -61,6 +61,8 @@ translations = {
         "error_updating_product": "Erro ao atualizar produto",
         "error_deleting_product": "Erro ao deletar produto",
         "access_denied": "Acesso negado. Apenas administradores.",
+        "product_not_found": "Produto não encontrado",
+        "error_fetching_product": "Erro ao buscar o produto",
     },
     "en": {
         "title": "Inventory Control",
@@ -112,6 +114,8 @@ translations = {
         "error_updating_product": "Error updating product",
         "error_deleting_product": "Error deleting product",
         "access_denied": "Access denied. Administrators only.",
+        "product_not_found": "Product not found",
+        "error_fetching_product": "Error fetching product",
         "generate_qr_code": "Generate QR Code",
     },
     "es": {
@@ -164,17 +168,22 @@ translations = {
         "error_updating_product": "Error al actualizar producto",
         "error_deleting_product": "Error al eliminar producto",
         "access_denied": "Acceso denegado. Solo administradores.",
+        "product_not_found": "Producto no encontrado",
+        "error_fetching_product": "Error al buscar el producto",
         "generate_qr_code": "Generar Código QR",
     }
 }
 
-# Database connection configuration
+# Estabelece conexão com o banco de dados MySQL
+# Parâmetros: Nenhum
+# Retorno: Objeto de conexão MySQL ou None em caso de erro
+# Utiliza as credenciais padrão do XAMPP
 def create_db_connection():
     try:
         connection = mysql.connector.connect(
             host="localhost",
             user="root",
-            password="",  # Default XAMPP password is empty
+            password="", # Default XAMPP password is empty
             database="inventory_system"
         )
         return connection
@@ -182,7 +191,11 @@ def create_db_connection():
         print(f"Error connecting to MySQL Database: {e}")
         return None
 
-# Initialize database and tables
+# Inicializa o banco de dados e cria as tabelas se não existirem
+# Cria 4 tabelas principais: products, movements, suppliers e users
+# Parâmetros: Nenhum
+# Retorno: Nenhum
+# Executa apenas uma vez ao iniciar a aplicação
 def init_database():
     try:
         connection = mysql.connector.connect(
@@ -248,6 +261,10 @@ def init_database():
             cursor.close()
             connection.close()
 
+# Cria um usuário administrador padrão no sistema
+# Parâmetros: Nenhum
+# Retorno: Nenhum
+# Credenciais: admin/admin123
 def create_default_admin():
     try:
         connection = create_db_connection()
@@ -269,7 +286,10 @@ def create_default_admin():
             cursor.close()
             connection.close()
 
-# Função principal
+# Função principal que gerencia toda a aplicação
+# Parâmetros: page - objeto principal do Flet
+# Retorno: Nenhum
+# Controla o estado global e inicializa a interface
 def main(page: ft.Page):
     # Initial state setup
     page.user = None
@@ -277,6 +297,9 @@ def main(page: ft.Page):
     current_language = "pt"
     page.theme_mode = ft.ThemeMode.LIGHT
 
+    # Verifica as credenciais do usuário no banco
+    # Parâmetros: username, password - credenciais do usuário
+    # Retorno: Dados do usuário se autenticado, None se inválido
     def verify_credentials(username, password):
         try:
             connection = create_db_connection()
@@ -292,6 +315,10 @@ def main(page: ft.Page):
                 cursor.close()
                 connection.close()
 
+    # Processa o login do usuário
+    # Parâmetros: e - evento do botão
+    # Retorno: Nenhum
+    # Atualiza a interface baseado no resultado da autenticação
     def login(e):
         user = verify_credentials(
             username_field.value,
@@ -311,6 +338,10 @@ def main(page: ft.Page):
         show_login_interface()
         page.update()
 
+    # Exibe a interface de login
+    # Parâmetros: Nenhum
+    # Retorno: Nenhum
+    # Limpa a tela e mostra o formulário de login
     def show_login_interface():
         page.clean()
         page.appbar = None
@@ -320,6 +351,10 @@ def main(page: ft.Page):
         password_field.value = ""
         page.update()
 
+    # Exibe a interface principal do sistema
+    # Parâmetros: Nenhum
+    # Retorno: Nenhum
+    # Mostra os cards de funcionalidades e menu
     def show_main_interface():
         page.clean()
         page.appbar = appbar  # Set appbar first
@@ -416,17 +451,38 @@ def main(page: ft.Page):
     # Define movement history function before appbar
     def show_movement_history(e):
         page.clean()
-        page.appbar = appbar  # Keep the appbar
+        page.appbar = appbar
 
-        # Create a new movement history view
-        movement_history_view = ft.Column([
-            ft.Text(translations[current_language]["movement_history"], size=30, weight="bold"),
-            movement_list,
-            ft.ElevatedButton(translations[current_language]["back"], on_click=go_back)
-        ], alignment=ft.MainAxisAlignment.START, expand=True)
+        movement_history_view = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [ft.Text(translations[current_language]["movement_history"], 
+                                size=30, 
+                                weight="bold")],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    ft.Container(height=20),  # Spacing
+                    ft.Container(
+                        content=movement_list,
+                        expand=True,
+                        padding=10,
+                    ),
+                    ft.Container(height=20),  # Spacing
+                    ft.Row(
+                        [ft.ElevatedButton(translations[current_language]["back"], 
+                                         on_click=go_back)],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=20,
+            expand=True,
+        )
 
         page.add(movement_history_view)
-        refresh_movement_list()  # Update the movement list
+        refresh_movement_list()
         page.update()
 
     # Then create appbar using all the buttons
@@ -476,7 +532,10 @@ def main(page: ft.Page):
     # Elemento UI para lista de movimentações
     movement_list = ft.Column()
 
-    # Função para trocar de idioma
+    # Altera o idioma da interface
+    # Parâmetros: e - evento com o idioma selecionado
+    # Retorno: Nenhum
+    # Atualiza todos os textos para o idioma escolhido
     def change_language(e):
         nonlocal current_language
         selected_language = e.control.data
@@ -488,7 +547,10 @@ def main(page: ft.Page):
         page.theme_mode = ft.ThemeMode.DARK if page.theme_mode == ft.ThemeMode.LIGHT else ft.ThemeMode.LIGHT
         page.update()
 
-    # Função para atualizar a interface com o idioma selecionado
+    # Atualiza a interface com o idioma atual
+    # Parâmetros: Nenhum
+    # Retorno: Nenhum
+    # Atualiza todos os elementos com as traduções
     def update_ui():
         appbar.title = ft.Text(translations[current_language]["title"])
         cards[0].content.content.controls[1].value = translations[current_language]["user_management"]
@@ -506,7 +568,9 @@ def main(page: ft.Page):
         supplier_dialog.title = ft.Text(translations[current_language]["register_supplier_title"])
         page.update()
 
-    # Função para criar cards clicáveis
+    # Cria um card clicável para o menu
+    # Parâmetros: icon - ícone do card, text_key - chave de tradução, on_click - função de callback
+    # Retorno: Objeto Card do Flet
     def create_card(icon, text_key, on_click):
         def handle_click(e):
             if not page.user:
@@ -553,6 +617,10 @@ def main(page: ft.Page):
         page.update()
 
     # Modified functions to use database instead of local storage
+    # Adiciona um novo produto ao sistema
+    # Parâmetros: name - nome do produto, quantity - quantidade inicial
+    # Retorno: Nenhum
+    # Gera QR code e salva no banco
     def add_product(name, quantity):
         if name and quantity.isdigit():
             try:
@@ -577,6 +645,10 @@ def main(page: ft.Page):
                     cursor.close()
                     connection.close()
 
+    # Processa leitura de QR code
+    # Parâmetros: action_type - tipo de ação (entrada/saída), qr_data - dados do QR
+    # Retorno: Nenhum
+    # Atualiza o estoque baseado na leitura
     def process_qr_code_scan(action_type, qr_data):
         try:
             # Parse QR code data
@@ -625,6 +697,10 @@ def main(page: ft.Page):
                 cursor.close()
                 connection.close()
 
+    # Lê QR code pela câmera
+    # Parâmetros: action_type - tipo de ação (entrada/saída)
+    # Retorno: Nenhum
+    # Usa OpenCV para captura e processamento
     def read_qrcode(action_type):
         cap = cv2.VideoCapture(0)
         while True:
@@ -655,6 +731,10 @@ def main(page: ft.Page):
             cap.release()
             cv2.destroyAllWindows()
 
+    # Atualiza a lista de produtos na interface
+    # Parâmetros: Nenhum
+    # Retorno: Nenhum
+    # Busca dados do banco e atualiza a UI
     def refresh_product_list():
         try:
             connection = create_db_connection()
@@ -664,31 +744,60 @@ def main(page: ft.Page):
             
             product_list.controls.clear()
             for product in products:
+                # Create buttons list based on user role
+                buttons = [
+                    ft.IconButton(
+                        icon=ft.icons.QR_CODE,
+                        tooltip="Ver QR Code",
+                        on_click=lambda e, id=product['id']: show_qr_code_for_product(id)
+                    ),
+                ]
+                
+                # Only add edit and delete buttons if user is admin
+                if page.user and page.user["role"] == "admin":
+                    buttons.insert(0, ft.IconButton(
+                        icon=ft.icons.EDIT,
+                        tooltip=translations[current_language]["edit_button_text"],
+                        on_click=lambda e, id=product['id']: edit_product_dialog(id)
+                    ))
+                    buttons.insert(1, ft.IconButton(
+                        icon=ft.icons.DELETE,
+                        tooltip=translations[current_language]["delete_button_text"],
+                        on_click=lambda e, id=product['id']: delete_product(id)
+                    ))
+
                 product_list.controls.append(
-                    ft.Row([
-                        ft.Text(f"{product['name']} - {product['quantity']}", size=16),
-                        ft.ElevatedButton(
-                            translations[current_language]["edit_button_text"],
-                            on_click=lambda e, id=product['id']: edit_product_dialog(id)
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Text(f"{product['name']} - {product['quantity']}", 
+                                      size=16, 
+                                      expand=True),
+                                ft.Row(
+                                    buttons,
+                                    spacing=0,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
-                        ft.ElevatedButton(
-                            translations[current_language]["delete_button_text"],
-                            on_click=lambda e, id=product['id']: delete_product(id)
-                        ),
-                        ft.ElevatedButton(
-                            "Ver QR Code",
-                            on_click=lambda e, id=product['id']: show_qr_code_for_product(id)
-                        ),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                        padding=ft.padding.symmetric(horizontal=10, vertical=5),
+                        border=ft.border.all(1, ft.colors.OUTLINE),
+                        border_radius=8,
+                        margin=ft.margin.only(bottom=5),
+                    )
                 )
             page.update()
         except Error as e:
             print(f"Error refreshing product list: {e}")
         finally:
-            if connection.is_connected():
+            if connection and connection.is_connected():
                 cursor.close()
                 connection.close()
 
+    # Registra movimentação no histórico
+    # Parâmetros: action_type - tipo de ação, product_name - produto, quantity - quantidade
+    # Retorno: Nenhum
+    # Salva no banco e atualiza histórico
     def record_movement(action_type, product_name, quantity):
         try:
             connection = create_db_connection()
@@ -706,7 +815,7 @@ def main(page: ft.Page):
             if connection.is_connected():
                 cursor.close()
                 connection.close()
-
+    # Função historico de movimentações
     def refresh_movement_list():
         try:
             connection = create_db_connection()
@@ -716,10 +825,29 @@ def main(page: ft.Page):
             
             movement_list.controls.clear()
             for movement in movements:
+                # Format the date nicely
+                formatted_date = movement['date'].strftime("%d/%m/%Y %H:%M")
+                # Create an icon based on action type
+                icon = ft.icons.ARROW_UPWARD if movement['action_type'] == "Entrada" else ft.icons.ARROW_DOWNWARD
+                icon_color = ft.colors.GREEN if movement['action_type'] == "Entrada" else ft.colors.RED
+                
                 movement_list.controls.append(
-                    ft.Row([
-                        ft.Text(f"{movement['date']} - {movement['action_type']} - {movement['product_name']} - {movement['quantity']}")
-                    ])
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Icon(icon, color=icon_color),
+                                ft.Text(formatted_date, size=14),
+                                ft.VerticalDivider(width=1),
+                                ft.Text(movement['product_name'], size=14, expand=True),
+                                ft.Text(f"Qtd: {movement['quantity']}", size=14),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        padding=10,
+                        border=ft.border.all(1, ft.colors.OUTLINE),
+                        border_radius=8,
+                        margin=ft.margin.only(bottom=5),
+                    )
                 )
             page.update()
         except Error as e:
@@ -734,6 +862,9 @@ def main(page: ft.Page):
         page.overlay.append(product_dialog)
         page.update()
 
+    # Gera código QR para produto
+    # Parâmetros: data - informações do produto
+    # Retorno: String base64 do QR code
     def generate_qr_code(data):
         qr = qrcode.make(data)
         buffered = BytesIO()
@@ -786,20 +917,44 @@ def main(page: ft.Page):
         record_movement("Entrada", product_name, quantity)
         refresh_movement_list()
 
-    # Função para exibir o registro de movimentações
+    # Exibe histórico de movimentações
+    # Parâmetros: e - evento do botão
+    # Retorno: Nenhum
+    # Mostra lista de todas as movimentações
     def show_movement_history(e):
         page.clean()
-        page.appbar = appbar  # Keep the appbar
+        page.appbar = appbar
 
-        # Create a new movement history view
-        movement_history_view = ft.Column([
-            ft.Text(translations[current_language]["movement_history"], size=30, weight="bold"),
-            movement_list,
-            ft.ElevatedButton(translations[current_language]["back"], on_click=go_back)
-        ], alignment=ft.MainAxisAlignment.START, expand=True)
+        movement_history_view = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [ft.Text(translations[current_language]["movement_history"], 
+                                size=30, 
+                                weight="bold")],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    ft.Container(height=20),  # Spacing
+                    ft.Container(
+                        content=movement_list,
+                        expand=True,
+                        padding=10,
+                    ),
+                    ft.Container(height=20),  # Spacing
+                    ft.Row(
+                        [ft.ElevatedButton(translations[current_language]["back"], 
+                                         on_click=go_back)],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=20,
+            expand=True,
+        )
 
         page.add(movement_history_view)
-        refresh_movement_list()  # Update the movement list
+        refresh_movement_list()
         page.update()
 
     # Cria a interface de histórico de movimentações
@@ -843,14 +998,42 @@ def main(page: ft.Page):
 
         refresh_product_list()
 
-        product_management_page = ft.Column([
-            ft.Text(translations[current_language]["product_list_title"], size=30),
-            product_list,
-            ft.Row([
-                ft.ElevatedButton(translations[current_language]["register_button_text"], on_click=add_product_dialog),
-                ft.ElevatedButton(translations[current_language]["back"], on_click=go_back)
-            ], alignment=ft.MainAxisAlignment.END)
-        ], alignment=ft.MainAxisAlignment.START, expand=True)
+        product_management_page = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text(
+                                translations[current_language]["product_list_title"], 
+                                size=30, 
+                                weight="bold"
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    ft.Container(height=20),  # Spacing
+                    product_list,
+                    ft.Container(height=20),  # Spacing
+                    ft.Row(
+                        [
+                            ft.ElevatedButton(
+                                translations[current_language]["register_button_text"], 
+                                on_click=add_product_dialog
+                            ),
+                            ft.ElevatedButton(
+                                translations[current_language]["back"], 
+                                on_click=go_back
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=20,
+                    ),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=20,
+            expand=True,
+        )
 
         page.add(product_management_page)
         page.update()
@@ -874,32 +1057,67 @@ def main(page: ft.Page):
         ]
     )
 
-    def edit_product_dialog(index):
-        product = products[index]
-        edit_dialog = ft.AlertDialog(
-            title=ft.Text(translations[current_language]["register_product_title"]),
-            content=ft.Column([
-                ft.TextField(label=translations[current_language]["product_name_label"], value=product['name']),
-                ft.TextField(label=translations[current_language]["product_quantity_label"], value=str(product['quantity']), keyboard_type=ft.KeyboardType.NUMBER)
-            ]),
-            actions=[
-                ft.TextButton(translations[current_language]["register_button_text"], on_click=lambda e: edit_product(index, edit_dialog.content.controls[0].value, edit_dialog.content.controls[1].value)),
-                ft.TextButton("Fechar", on_click=close_edit_dialog)
-            ]
-        )
-        page.overlay.append(edit_dialog)
-        edit_dialog.open = True
-        page.update()
+    def edit_product_dialog(product_id):
+        # Check if user is logged in and is an admin
+        if not page.user or page.user["role"] != "admin":
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
+            )
+            return
 
-    # Função para exibir a interface de Gestão de Usuários
+        try:
+            # Fetch product data from database
+            connection = create_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
+            product = cursor.fetchone()
+            
+            if product:
+                edit_dialog = ft.AlertDialog(
+                    title=ft.Text(translations[current_language]["register_product_title"]),
+                    content=ft.Column([
+                        ft.TextField(label=translations[current_language]["product_name_label"], value=product['name']),
+                        ft.TextField(label=translations[current_language]["product_quantity_label"], value=str(product['quantity']), keyboard_type=ft.KeyboardType.NUMBER)
+                    ]),
+                    actions=[
+                        ft.TextButton(translations[current_language]["register_button_text"], 
+                                    on_click=lambda e: edit_product(product_id, edit_dialog.content.controls[0].value, edit_dialog.content.controls[1].value)),
+                        ft.TextButton("Fechar", on_click=close_edit_dialog)
+                    ]
+                )
+                page.overlay.append(edit_dialog)
+                edit_dialog.open = True
+                page.update()
+            else:
+                page.show_snack_bar(
+                    ft.SnackBar(content=ft.Text(translations[current_language]["product_not_found"]))
+                )
+        except Error as e:
+            print(f"Error fetching product: {e}")
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["error_fetching_product"]))
+            )
+        finally:
+            if connection and connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    # Gerencia usuários do sistema (apenas administradores)
+    # Parâmetros: e - evento do botão
+    # Retorno: Nenhum
+    # Permite adicionar, editar e remover usuários do sistema
     def show_user_management_page(e):
         if page.user and page.user["role"] == "admin":
             page.clean()
             page.appbar = appbar
 
             # Create user list container
-            user_list = ft.Column()
+            user_list = ft.Column(spacing=10)
 
+            # Atualiza a lista de usuarios na interface
+            # Parâmetros: Nenhum
+            # Retorno: Nenhum
+            # Busca todos os usuarios do banco e atualiza a UI
             def refresh_user_list():
                 try:
                     connection = create_db_connection()
@@ -909,26 +1127,43 @@ def main(page: ft.Page):
                     
                     user_list.controls.clear()
                     for user in users:
+                        # Create role badge
+                        role_color = ft.colors.BLUE if user['role'] == "admin" else ft.colors.GREEN
+                        role_badge = ft.Container(
+                            content=ft.Text(user['role'], size=12, color=ft.colors.WHITE),
+                            bgcolor=role_color,
+                            border_radius=15,
+                            padding=ft.padding.symmetric(horizontal=10, vertical=3),
+                        )
+
                         user_list.controls.append(
-                            ft.Row(
-                                [
-                                    ft.Text(f"{user['username']} ({user['role']})", size=16),
-                                    ft.Row(
-                                        [
-                                            ft.IconButton(
-                                                icon=ft.icons.EDIT,
-                                                tooltip=translations[current_language]["edit_user"],
-                                                on_click=lambda e, u=user: show_edit_user_dialog(u)
-                                            ),
-                                            ft.IconButton(
-                                                icon=ft.icons.DELETE,
-                                                tooltip=translations[current_language]["delete_button_text"],
-                                                on_click=lambda e, u=user: show_delete_user_dialog(u)
-                                            ),
-                                        ]
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                            ft.Container(
+                                content=ft.Row(
+                                    [
+                                        ft.Text(user['username'], size=16, expand=True),
+                                        role_badge,
+                                        ft.Row(
+                                            [
+                                                ft.IconButton(
+                                                    icon=ft.icons.EDIT,
+                                                    tooltip=translations[current_language]["edit_user"],
+                                                    on_click=lambda e, u=user: show_edit_user_dialog(u)
+                                                ),
+                                                ft.IconButton(
+                                                    icon=ft.icons.DELETE,
+                                                    tooltip=translations[current_language]["delete_button_text"],
+                                                    on_click=lambda e, u=user: show_delete_user_dialog(u)
+                                                ),
+                                            ],
+                                            spacing=0,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                padding=10,
+                                border=ft.border.all(1, ft.colors.OUTLINE),
+                                border_radius=8,
+                                margin=ft.margin.only(bottom=5),
                             )
                         )
                     page.update()
@@ -939,6 +1174,10 @@ def main(page: ft.Page):
                         cursor.close()
                         connection.close()
 
+            # Exibe diálogo para adicionar novo usuário
+            # Parâmetros: e - evento do botão
+            # Retorno: Nenhum
+            # Permite inserir username, senha e role do novo usuário
             def show_add_user_dialog(e):
                 username_field = ft.TextField(
                     label=translations[current_language]["username"],
@@ -959,6 +1198,9 @@ def main(page: ft.Page):
                     value="user"
                 )
 
+                # Salva o novo usuário no banco
+                # Parâmetros: e - evento do botão
+                # Retorno: Nenhum
                 def save_new_user(e):
                     try:
                         connection = create_db_connection()
@@ -994,6 +1236,10 @@ def main(page: ft.Page):
                 add_dialog.open = True
                 page.update()
 
+            # Exibe diálogo para editar usuário existente
+            # Parâmetros: user - dados do usuário a ser editado
+            # Retorno: Nenhum
+            # Permite modificar username, senha e role
             def show_edit_user_dialog(user):
                 username_field = ft.TextField(
                     label=translations[current_language]["username"],
@@ -1016,6 +1262,9 @@ def main(page: ft.Page):
                     value=user["role"]
                 )
 
+                # Salva as alterações do usuário
+                # Parâmetros: e - evento do botão
+                # Retorno: Nenhum
                 def save_user_changes(e):
                     try:
                         connection = create_db_connection()
@@ -1059,6 +1308,10 @@ def main(page: ft.Page):
                 edit_dialog.open = True
                 page.update()
 
+            # Exibe diálogo de confirmação para deletar usuário
+            # Parâmetros: user - dados do usuário a ser removido
+            # Retorno: Nenhum
+            # Solicita confirmação antes de remover o usuário
             def show_delete_user_dialog(user):
                 def delete_user(e):
                     try:
@@ -1089,24 +1342,57 @@ def main(page: ft.Page):
                 page.update()
 
             # Create the user management page layout
-            user_management_page = ft.Column([
-                ft.Row([
-                    ft.Text(translations[current_language]["user_list_title"], size=30, weight="bold"),
-                    ft.ElevatedButton(
-                        text=translations[current_language]["add_user"],
-                        on_click=show_add_user_dialog
-                    )
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                user_list,
-                ft.ElevatedButton("Voltar", on_click=go_back)
-            ], spacing=20)
+            user_management_page = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(
+                                    translations[current_language]["user_list_title"], 
+                                    size=30, 
+                                    weight="bold"
+                                ),
+                                ft.ElevatedButton(
+                                    content=ft.Row(
+                                        [
+                                            ft.Icon(ft.icons.ADD),
+                                            ft.Text(translations[current_language]["add_user"]),
+                                        ],
+                                        spacing=5,
+                                    ),
+                                    on_click=show_add_user_dialog
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Divider(),
+                        ft.Container(
+                            content=user_list,
+                            expand=True,
+                            padding=ft.padding.symmetric(vertical=10),
+                        ),
+                        ft.Row(
+                            [
+                                ft.ElevatedButton(
+                                    translations[current_language]["back"],
+                                    on_click=go_back
+                                )
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=20,
+                ),
+                padding=20,
+                expand=True,
+            )
 
             page.add(user_management_page)
             refresh_user_list()
             page.update()
         else:
             page.show_snack_bar(
-                ft.SnackBar(content=ft.Text("Access denied. Administrators only."))
+                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
             )
 
     # Função para exibir a caixa de diálogo de ajuda
@@ -1121,7 +1407,7 @@ def main(page: ft.Page):
         page.overlay.append(product_dialog)
         page.update()
 
-    # Função para registrar fornecedor
+    # Funço para registrar fornecedor
     def show_supplier_registration_dialog(e):
         supplier_dialog.open = True
         page.overlay.append(supplier_dialog)
@@ -1226,7 +1512,7 @@ def main(page: ft.Page):
     # Botão Ajuda
     help_button = ft.IconButton(ft.icons.HELP, tooltip=translations[current_language]["help_button_text"], on_click=show_help_dialog)
 
-    # Criar o AppBar
+    # Criar o AppBar, botão de admin e botão de logout
     appbar = ft.AppBar(
         title=ft.Text(translations[current_language]["title"]),
         center_title=True,
@@ -1281,19 +1567,57 @@ def main(page: ft.Page):
             show_login_interface()
         page.update()
 
-def delete_product(product_id):
-    try:
-        connection = create_db_connection()
-        cursor = connection.cursor()
-        cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
-        connection.commit()
-        refresh_product_list()
-    except Error as e:
-        print(f"Error deleting product: {e}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+    def delete_product(product_id):
+        # Check if user is logged in and is an admin
+        if not page.user or page.user["role"] != "admin":
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
+            )
+            return
+        
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor()
+            cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+            connection.commit()
+            refresh_product_list()
+        except Error as e:
+            print(f"Error deleting product: {e}")
+        finally:
+            if connection and connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    # Add permission check to the edit_product function as well
+    def edit_product(index, name, quantity):
+        if not page.user or page.user["role"] != "admin":
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
+            )
+            return
+        
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor()
+            cursor.execute(
+                "UPDATE products SET name = %s, quantity = %s WHERE id = %s",
+                (name, quantity, index)
+            )
+            connection.commit()
+            refresh_product_list()
+            close_edit_dialog()
+        except Error as e:
+            print(f"Error updating product: {e}")
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["error_updating_product"]))
+            )
+        finally:
+            if connection and connection.is_connected():
+                cursor.close()
+                connection.close()
 
 # Executar o app
 ft.app(target=main)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
