@@ -174,6 +174,30 @@ translations = {
     }
 }
 
+current_language = "pt"  # Default language
+
+# Verifica se o usuário atual tem permissões de administrador
+# Retorno: 
+#   True se usuário for admin, False caso contrário
+# Exibe mensagens de erro via SnackBar quando show_message=True
+def check_admin_permission(page, show_message=True):
+    global current_language
+    if not page.user:
+        if show_message:
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["please_login"]))
+            )
+        return False
+    
+    if page.user["role"] != "admin":
+        if show_message:
+            page.show_snack_bar(
+                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
+            )
+        return False
+    
+    return True
+
 # Estabelece conexão com o banco de dados MySQL
 # Parâmetros: Nenhum
 # Retorno: Objeto de conexão MySQL ou None em caso de erro
@@ -429,16 +453,12 @@ def main(page: ft.Page):
     help_dialog = ft.AlertDialog(
         title=ft.Text(translations[current_language]["help_button_text"]),
         content=ft.Text(translations[current_language]["help_content"]),
-        actions=[ft.TextButton("Fechar", on_click=lambda e: close_help_dialog())]
+        actions=[ft.TextButton("Fechar", on_click=lambda e: close_dialog(help_dialog))]
     )
 
     def show_help_dialog(e):
         help_dialog.open = True
         page.overlay.append(help_dialog)
-        page.update()
-
-    def close_help_dialog():
-        help_dialog.open = False
         page.update()
 
     # Then define help button
@@ -448,7 +468,10 @@ def main(page: ft.Page):
         on_click=show_help_dialog
     )
 
-    # Define movement history function before appbar
+    # Exibe histórico de movimentações
+    # Parâmetros: e - evento do botão
+    # Retorno: Nenhum
+    # Mostra lista de todas as movimentações
     def show_movement_history(e):
         page.clean()
         page.appbar = appbar
@@ -599,21 +622,8 @@ def main(page: ft.Page):
         )
         
         
-    def close_product_dialog(e=None):
-        if product_dialog.open:
-            product_dialog.open = False
-            page.update()
-
-    def close_edit_dialog(e=None):
-        for control in page.overlay:
-            if isinstance(control, ft.AlertDialog):
-                control.open = False
-        page.update()
-
-    def close_help_dialog():
-        for control in page.overlay:
-            if isinstance(control, ft.AlertDialog):
-                control.open = False
+    def close_dialog(dialog):
+        dialog.open = False
         page.update()
 
     # Modified functions to use database instead of local storage
@@ -637,7 +647,7 @@ def main(page: ft.Page):
                 )
                 connection.commit()
                 refresh_product_list()
-                close_product_dialog()
+                close_dialog(product_dialog)
             except Error as e:
                 print(f"Error adding product: {e}")
             finally:
@@ -701,32 +711,51 @@ def main(page: ft.Page):
     # Parâmetros: action_type - tipo de ação (entrada/saída)
     # Retorno: Nenhum
     # Usa OpenCV para captura e processamento
-    def read_qrcode(action_type):
+    def handle_qr_scan(action_type):
+        # Inicializa a captura de vídeo da câmera padrão (índice 0)
         cap = cv2.VideoCapture(0)
+        
         while True:
+            # Captura frame por frame da câmera
+            # ret: Booleano indicando se o frame foi capturado com sucesso
+            # frame: O frame atual da imagem da câmera
             ret, frame = cap.read()
             if not ret:
                 break
 
+            # Converte o frame para escala de cinza para melhor detecção do QR code
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # Cria objeto detector de QR code
             detector = cv2.QRCodeDetector()
+            
+            # Tenta detectar e decodificar o QR code no frame
+            # data: String decodificada do QR code
+            # points: Coordenadas do QR code na imagem
             data, points, _ = detector.detectAndDecode(gray)
 
+            # Se um QR code for detectado
             if data:
+                # Desenha linhas azuis ao redor do QR code detectado
                 cv2.polylines(frame, [np.int32(points)], True, (255, 0, 0), 2, cv2.LINE_AA)
-                print(f"QR Code Data: {data}")
+                print(f"Dados do QR Code: {data}")
                 
-                # Process the scanned QR code
+                # Processa os dados escaneados (atualiza o inventário baseado no action_type)
                 process_qr_code_scan(action_type, data)
                 
+                # Limpa e fecha os recursos da câmera
                 cap.release()
                 cv2.destroyAllWindows()
-                break
+                return
                 
-            cv2.imshow("QR CODE DETECTION", frame)
+            # Mostra o feed da câmera com a sobreposição da detecção do QR
+            cv2.imshow("DETECÇÃO DE QR CODE", frame)
+            
+            # Verifica se a tecla 'q' foi pressionada para sair do escaneamento
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
                 
+        # Limpa os recursos se o loop for interrompido
         if cap.isOpened():
             cap.release()
             cv2.destroyAllWindows()
@@ -815,6 +844,7 @@ def main(page: ft.Page):
             if connection.is_connected():
                 cursor.close()
                 connection.close()
+
     # Função historico de movimentações
     def refresh_movement_list():
         try:
@@ -917,64 +947,6 @@ def main(page: ft.Page):
         record_movement("Entrada", product_name, quantity)
         refresh_movement_list()
 
-    # Exibe histórico de movimentações
-    # Parâmetros: e - evento do botão
-    # Retorno: Nenhum
-    # Mostra lista de todas as movimentações
-    def show_movement_history(e):
-        page.clean()
-        page.appbar = appbar
-
-        movement_history_view = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [ft.Text(translations[current_language]["movement_history"], 
-                                size=30, 
-                                weight="bold")],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    ft.Container(height=20),  # Spacing
-                    ft.Container(
-                        content=movement_list,
-                        expand=True,
-                        padding=10,
-                    ),
-                    ft.Container(height=20),  # Spacing
-                    ft.Row(
-                        [ft.ElevatedButton(translations[current_language]["back"], 
-                                         on_click=go_back)],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                ],
-                scroll=ft.ScrollMode.AUTO,
-            ),
-            padding=20,
-            expand=True,
-        )
-
-        page.add(movement_history_view)
-        refresh_movement_list()
-        page.update()
-
-    # Cria a interface de histórico de movimentações
-    # movement_history_page = ft.Column(
-    #     [
-    #         ft.Text("Histórico de Movimentações", size=30),
-    #         movement_list,
-    #         # ft.ElevatedButton("Voltar", on_click=go_back)  # Botão para voltar ao menu principal
-    #     ],
-    #     alignment=ft.MainAxisAlignment.START,
-    #     expand=True
-    # )
-    
-    # page.add(movement_history_page)
-    # page.update()
-
-    # # cards.append(
-    # #     create_card(ft.icons.HISTORY, "history", show_movement_history)
-    # # )
-
     def menu_page():
         return ft.Column(
             [
@@ -1053,20 +1025,15 @@ def main(page: ft.Page):
         ]),
         actions=[
             ft.TextButton(translations[current_language]["register_button_text"], on_click=lambda e: add_product(product_dialog.content.controls[0].value, product_dialog.content.controls[1].value)),
-            ft.TextButton("Fechar", on_click=close_product_dialog)
+            ft.TextButton("Fechar", on_click=lambda e: close_dialog(product_dialog))
         ]
     )
 
     def edit_product_dialog(product_id):
-        # Check if user is logged in and is an admin
-        if not page.user or page.user["role"] != "admin":
-            page.show_snack_bar(
-                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
-            )
+        if not check_admin_permission(page):
             return
-
+        
         try:
-            # Fetch product data from database
             connection = create_db_connection()
             cursor = connection.cursor(dictionary=True)
             cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
@@ -1082,7 +1049,7 @@ def main(page: ft.Page):
                     actions=[
                         ft.TextButton(translations[current_language]["register_button_text"], 
                                     on_click=lambda e: edit_product(product_id, edit_dialog.content.controls[0].value, edit_dialog.content.controls[1].value)),
-                        ft.TextButton("Fechar", on_click=close_edit_dialog)
+                        ft.TextButton("Fechar", on_click=lambda e: close_dialog(edit_dialog))
                     ]
                 )
                 page.overlay.append(edit_dialog)
@@ -1107,293 +1074,291 @@ def main(page: ft.Page):
     # Retorno: Nenhum
     # Permite adicionar, editar e remover usuários do sistema
     def show_user_management_page(e):
-        if page.user and page.user["role"] == "admin":
-            page.clean()
-            page.appbar = appbar
+        if not check_admin_permission(page):
+            return
+        
+        page.clean()
+        page.appbar = appbar
 
-            # Create user list container
-            user_list = ft.Column(spacing=10)
+        # Create user list container
+        user_list = ft.Column(spacing=10)
 
-            # Atualiza a lista de usuarios na interface
-            # Parâmetros: Nenhum
+        # Atualiza a lista de usuarios na interface
+        # Parâmetros: Nenhum
+        # Retorno: Nenhum
+        # Busca todos os usuarios do banco e atualiza a UI
+        def refresh_user_list():
+            try:
+                connection = create_db_connection()
+                cursor = connection.cursor(dictionary=True)
+                cursor.execute("SELECT id, username, role FROM users")
+                users = cursor.fetchall()
+                
+                user_list.controls.clear()
+                for user in users:
+                    # Create role badge
+                    role_color = ft.colors.BLUE if user['role'] == "admin" else ft.colors.GREEN
+                    role_badge = ft.Container(
+                        content=ft.Text(user['role'], size=12, color=ft.colors.WHITE),
+                        bgcolor=role_color,
+                        border_radius=15,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=3),
+                    )
+
+                    user_list.controls.append(
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    ft.Text(user['username'], size=16, expand=True),
+                                    role_badge,
+                                    ft.Row(
+                                        [
+                                            ft.IconButton(
+                                                icon=ft.icons.EDIT,
+                                                tooltip=translations[current_language]["edit_user"],
+                                                on_click=lambda e, u=user: show_edit_user_dialog(u)
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.icons.DELETE,
+                                                tooltip=translations[current_language]["delete_button_text"],
+                                                on_click=lambda e, u=user: show_delete_user_dialog(u)
+                                            ),
+                                        ],
+                                        spacing=0,
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                            padding=10,
+                            border=ft.border.all(1, ft.colors.OUTLINE),
+                            border_radius=8,
+                            margin=ft.margin.only(bottom=5),
+                        )
+                    )
+                page.update()
+            except Error as e:
+                print(f"Error refreshing user list: {e}")
+            finally:
+                if connection and connection.is_connected():
+                    cursor.close()
+                    connection.close()
+
+        # Exibe diálogo para adicionar novo usuário
+        # Parâmetros: e - evento do botão
+        # Retorno: Nenhum
+        # Permite inserir username, senha e role do novo usuário
+        def show_add_user_dialog(e):
+            username_field = ft.TextField(
+                label=translations[current_language]["username"],
+                width=300
+            )
+            password_field = ft.TextField(
+                label=translations[current_language]["password"],
+                password=True,
+                width=300
+            )
+            role_dropdown = ft.Dropdown(
+                label=translations[current_language]["role_label"],
+                width=300,
+                options=[
+                    ft.dropdown.Option("admin", translations[current_language]["admin_role"]),
+                    ft.dropdown.Option("user", translations[current_language]["user_role"])
+                ],
+                value="user"
+            )
+
+            # Salva o novo usuário no banco
+            # Parâmetros: e - evento do botão
             # Retorno: Nenhum
-            # Busca todos os usuarios do banco e atualiza a UI
-            def refresh_user_list():
+            def save_new_user(e):
                 try:
                     connection = create_db_connection()
-                    cursor = connection.cursor(dictionary=True)
-                    cursor.execute("SELECT id, username, role FROM users")
-                    users = cursor.fetchall()
-                    
-                    user_list.controls.clear()
-                    for user in users:
-                        # Create role badge
-                        role_color = ft.colors.BLUE if user['role'] == "admin" else ft.colors.GREEN
-                        role_badge = ft.Container(
-                            content=ft.Text(user['role'], size=12, color=ft.colors.WHITE),
-                            bgcolor=role_color,
-                            border_radius=15,
-                            padding=ft.padding.symmetric(horizontal=10, vertical=3),
-                        )
-
-                        user_list.controls.append(
-                            ft.Container(
-                                content=ft.Row(
-                                    [
-                                        ft.Text(user['username'], size=16, expand=True),
-                                        role_badge,
-                                        ft.Row(
-                                            [
-                                                ft.IconButton(
-                                                    icon=ft.icons.EDIT,
-                                                    tooltip=translations[current_language]["edit_user"],
-                                                    on_click=lambda e, u=user: show_edit_user_dialog(u)
-                                                ),
-                                                ft.IconButton(
-                                                    icon=ft.icons.DELETE,
-                                                    tooltip=translations[current_language]["delete_button_text"],
-                                                    on_click=lambda e, u=user: show_delete_user_dialog(u)
-                                                ),
-                                            ],
-                                            spacing=0,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                padding=10,
-                                border=ft.border.all(1, ft.colors.OUTLINE),
-                                border_radius=8,
-                                margin=ft.margin.only(bottom=5),
-                            )
-                        )
-                    page.update()
+                    cursor = connection.cursor()
+                    cursor.execute(
+                        "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+                        (username_field.value, password_field.value, role_dropdown.value)
+                    )
+                    connection.commit()
+                    refresh_user_list()
+                    close_dialog(add_dialog)
                 except Error as e:
-                    print(f"Error refreshing user list: {e}")
+                    print(f"Error adding user: {e}")
+                    page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
                 finally:
-                    if connection and connection.is_connected():
+                    if connection.is_connected():
                         cursor.close()
                         connection.close()
 
-            # Exibe diálogo para adicionar novo usuário
+            add_dialog = ft.AlertDialog(
+                title=ft.Text(translations[current_language]["add_user"]),
+                content=ft.Column([
+                    username_field,
+                    password_field,
+                    role_dropdown
+                ], spacing=10),
+                actions=[
+                    ft.TextButton(translations[current_language]["register_button_text"], on_click=save_new_user),
+                    ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(add_dialog))
+                ]
+            )
+            page.overlay.append(add_dialog)
+            add_dialog.open = True
+            page.update()
+
+        # Exibe diálogo para editar usuário existente
+        # Parâmetros: user - dados do usuário a ser editado
+        # Retorno: Nenhum
+        # Permite modificar username, senha e role
+        def show_edit_user_dialog(user):
+            username_field = ft.TextField(
+                label=translations[current_language]["username"],
+                value=user["username"],
+                width=300
+            )
+            password_field = ft.TextField(
+                label=translations[current_language]["password"],
+                password=True,
+                width=300,
+                hint_text="Leave blank to keep current password"
+            )
+            role_dropdown = ft.Dropdown(
+                label=translations[current_language]["role_label"],
+                width=300,
+                options=[
+                    ft.dropdown.Option("admin", translations[current_language]["admin_role"]),
+                    ft.dropdown.Option("user", translations[current_language]["user_role"])
+                ],
+                value=user["role"]
+            )
+
+            # Salva as alterações do usuário
             # Parâmetros: e - evento do botão
             # Retorno: Nenhum
-            # Permite inserir username, senha e role do novo usuário
-            def show_add_user_dialog(e):
-                username_field = ft.TextField(
-                    label=translations[current_language]["username"],
-                    width=300
-                )
-                password_field = ft.TextField(
-                    label=translations[current_language]["password"],
-                    password=True,
-                    width=300
-                )
-                role_dropdown = ft.Dropdown(
-                    label=translations[current_language]["role_label"],
-                    width=300,
-                    options=[
-                        ft.dropdown.Option("admin", translations[current_language]["admin_role"]),
-                        ft.dropdown.Option("user", translations[current_language]["user_role"])
-                    ],
-                    value="user"
-                )
-
-                # Salva o novo usuário no banco
-                # Parâmetros: e - evento do botão
-                # Retorno: Nenhum
-                def save_new_user(e):
-                    try:
-                        connection = create_db_connection()
-                        cursor = connection.cursor()
+            def save_user_changes(e):
+                try:
+                    connection = create_db_connection()
+                    cursor = connection.cursor()
+                    
+                    if password_field.value:  # If password was changed
                         cursor.execute(
-                            "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
-                            (username_field.value, password_field.value, role_dropdown.value)
+                            "UPDATE users SET username = %s, password = %s, role = %s WHERE id = %s",
+                            (username_field.value, password_field.value, role_dropdown.value, user["id"])
                         )
-                        connection.commit()
-                        refresh_user_list()
-                        close_dialog(add_dialog)
-                    except Error as e:
-                        print(f"Error adding user: {e}")
-                        page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
-                    finally:
-                        if connection.is_connected():
-                            cursor.close()
-                            connection.close()
+                    else:  # If password wasn't changed
+                        cursor.execute(
+                            "UPDATE users SET username = %s, role = %s WHERE id = %s",
+                            (username_field.value, role_dropdown.value, user["id"])
+                        )
+                    
+                    connection.commit()
+                    refresh_user_list()
+                    close_dialog(edit_dialog)
+                except Error as e:
+                    print(f"Error updating user: {e}")
+                    page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
+                finally:
+                    if connection.is_connected():
+                        cursor.close()
+                        connection.close()
 
-                add_dialog = ft.AlertDialog(
-                    title=ft.Text(translations[current_language]["add_user"]),
-                    content=ft.Column([
-                        username_field,
-                        password_field,
-                        role_dropdown
-                    ], spacing=10),
-                    actions=[
-                        ft.TextButton(translations[current_language]["register_button_text"], on_click=save_new_user),
-                        ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(add_dialog))
-                    ]
-                )
-                page.overlay.append(add_dialog)
-                add_dialog.open = True
-                page.update()
-
-            # Exibe diálogo para editar usuário existente
-            # Parâmetros: user - dados do usuário a ser editado
-            # Retorno: Nenhum
-            # Permite modificar username, senha e role
-            def show_edit_user_dialog(user):
-                username_field = ft.TextField(
-                    label=translations[current_language]["username"],
-                    value=user["username"],
-                    width=300
-                )
-                password_field = ft.TextField(
-                    label=translations[current_language]["password"],
-                    password=True,
-                    width=300,
-                    hint_text="Leave blank to keep current password"
-                )
-                role_dropdown = ft.Dropdown(
-                    label=translations[current_language]["role_label"],
-                    width=300,
-                    options=[
-                        ft.dropdown.Option("admin", translations[current_language]["admin_role"]),
-                        ft.dropdown.Option("user", translations[current_language]["user_role"])
-                    ],
-                    value=user["role"]
-                )
-
-                # Salva as alterações do usuário
-                # Parâmetros: e - evento do botão
-                # Retorno: Nenhum
-                def save_user_changes(e):
-                    try:
-                        connection = create_db_connection()
-                        cursor = connection.cursor()
-                        
-                        if password_field.value:  # If password was changed
-                            cursor.execute(
-                                "UPDATE users SET username = %s, password = %s, role = %s WHERE id = %s",
-                                (username_field.value, password_field.value, role_dropdown.value, user["id"])
-                            )
-                        else:  # If password wasn't changed
-                            cursor.execute(
-                                "UPDATE users SET username = %s, role = %s WHERE id = %s",
-                                (username_field.value, role_dropdown.value, user["id"])
-                            )
-                        
-                        connection.commit()
-                        refresh_user_list()
-                        close_dialog(edit_dialog)
-                    except Error as e:
-                        print(f"Error updating user: {e}")
-                        page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
-                    finally:
-                        if connection.is_connected():
-                            cursor.close()
-                            connection.close()
-
-                edit_dialog = ft.AlertDialog(
-                    title=ft.Text(translations[current_language]["edit_user"]),
-                    content=ft.Column([
-                        username_field,
-                        password_field,
-                        role_dropdown
-                    ], spacing=10),
-                    actions=[
-                        ft.TextButton(translations[current_language]["edit_button_text"], on_click=save_user_changes),
-                        ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(edit_dialog))
-                    ]
-                )
-                page.overlay.append(edit_dialog)
-                edit_dialog.open = True
-                page.update()
-
-            # Exibe diálogo de confirmação para deletar usuário
-            # Parâmetros: user - dados do usuário a ser removido
-            # Retorno: Nenhum
-            # Solicita confirmação antes de remover o usuário
-            def show_delete_user_dialog(user):
-                def delete_user(e):
-                    try:
-                        connection = create_db_connection()
-                        cursor = connection.cursor()
-                        cursor.execute("DELETE FROM users WHERE id = %s", (user["id"],))
-                        connection.commit()
-                        refresh_user_list()
-                        close_dialog(delete_dialog)
-                    except Error as e:
-                        print(f"Error deleting user: {e}")
-                        page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
-                    finally:
-                        if connection.is_connected():
-                            cursor.close()
-                            connection.close()
-
-                delete_dialog = ft.AlertDialog(
-                    title=ft.Text(translations[current_language]["confirm_delete"]),
-                    content=ft.Text(translations[current_language]["delete_user_message"]),
-                    actions=[
-                        ft.TextButton(translations[current_language]["yes"], on_click=delete_user),
-                        ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(delete_dialog))
-                    ]
-                )
-                page.overlay.append(delete_dialog)
-                delete_dialog.open = True
-                page.update()
-
-            # Create the user management page layout
-            user_management_page = ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Text(
-                                    translations[current_language]["user_list_title"], 
-                                    size=30, 
-                                    weight="bold"
-                                ),
-                                ft.ElevatedButton(
-                                    content=ft.Row(
-                                        [
-                                            ft.Icon(ft.icons.ADD),
-                                            ft.Text(translations[current_language]["add_user"]),
-                                        ],
-                                        spacing=5,
-                                    ),
-                                    on_click=show_add_user_dialog
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Divider(),
-                        ft.Container(
-                            content=user_list,
-                            expand=True,
-                            padding=ft.padding.symmetric(vertical=10),
-                        ),
-                        ft.Row(
-                            [
-                                ft.ElevatedButton(
-                                    translations[current_language]["back"],
-                                    on_click=go_back
-                                )
-                            ],
-                            alignment=ft.MainAxisAlignment.CENTER,
-                        ),
-                    ],
-                    spacing=20,
-                ),
-                padding=20,
-                expand=True,
+            edit_dialog = ft.AlertDialog(
+                title=ft.Text(translations[current_language]["edit_user"]),
+                content=ft.Column([
+                    username_field,
+                    password_field,
+                    role_dropdown
+                ], spacing=10),
+                actions=[
+                    ft.TextButton(translations[current_language]["edit_button_text"], on_click=save_user_changes),
+                    ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(edit_dialog))
+                ]
             )
-
-            page.add(user_management_page)
-            refresh_user_list()
+            page.overlay.append(edit_dialog)
+            edit_dialog.open = True
             page.update()
-        else:
-            page.show_snack_bar(
-                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
+
+        # Exibe diálogo de confirmação para deletar usuário
+        # Parâmetros: user - dados do usuário a ser removido
+        # Retorno: Nenhum
+        # Solicita confirmação antes de remover o usuário
+        def show_delete_user_dialog(user):
+            def delete_user(e):
+                try:
+                    connection = create_db_connection()
+                    cursor = connection.cursor()
+                    cursor.execute("DELETE FROM users WHERE id = %s", (user["id"],))
+                    connection.commit()
+                    refresh_user_list()
+                    close_dialog(delete_dialog)
+                except Error as e:
+                    print(f"Error deleting user: {e}")
+                    page.show_snack_bar(ft.SnackBar(content=ft.Text(f"Error: {str(e)}")))
+                finally:
+                    if connection.is_connected():
+                        cursor.close()
+                        connection.close()
+
+            delete_dialog = ft.AlertDialog(
+                title=ft.Text(translations[current_language]["confirm_delete"]),
+                content=ft.Text(translations[current_language]["delete_user_message"]),
+                actions=[
+                    ft.TextButton(translations[current_language]["yes"], on_click=delete_user),
+                    ft.TextButton(translations[current_language]["no"], on_click=lambda e: close_dialog(delete_dialog))
+                ]
             )
+            page.overlay.append(delete_dialog)
+            delete_dialog.open = True
+            page.update()
+
+        # Create the user management page layout
+        user_management_page = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text(
+                                translations[current_language]["user_list_title"], 
+                                size=30, 
+                                weight="bold"
+                            ),
+                            ft.ElevatedButton(
+                                content=ft.Row(
+                                    [
+                                        ft.Icon(ft.icons.ADD),
+                                        ft.Text(translations[current_language]["add_user"]),
+                                    ],
+                                    spacing=5,
+                                ),
+                                on_click=show_add_user_dialog
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Divider(),
+                    ft.Container(
+                        content=user_list,
+                        expand=True,
+                        padding=ft.padding.symmetric(vertical=10),
+                    ),
+                    ft.Row(
+                        [
+                            ft.ElevatedButton(
+                                translations[current_language]["back"],
+                                on_click=go_back
+                            )
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=20,
+            ),
+            padding=20,
+            expand=True,
+        )
+
+        page.add(user_management_page)
+        refresh_user_list()
+        page.update()
 
     # Função para exibir a caixa de diálogo de ajuda
     def show_help_dialog(e):
@@ -1417,13 +1382,8 @@ def main(page: ft.Page):
     help_dialog = ft.AlertDialog(
         title=ft.Text(translations[current_language]["help_button_text"]),
         content=ft.Text(translations[current_language]["help_content"]),
-        actions=[ft.TextButton("Fechar", on_click=lambda e: close_help_dialog())]
+        actions=[ft.TextButton("Fechar", on_click=lambda e: close_dialog(help_dialog))]
     )
-
-    # Função para fechar a caixa de diálogo
-    def close_help_dialog():
-        help_dialog.open = False
-        page.update()
 
     # Diálogo de registro de fornecedor
     supplier_dialog = ft.AlertDialog(
@@ -1434,25 +1394,12 @@ def main(page: ft.Page):
         ]),
         actions=[
             ft.TextButton(translations[current_language]["register_button_text"], on_click=lambda e: register_supplier()),
-            ft.TextButton("Fechar", on_click=lambda e: close_supplier_dialog())
+            ft.TextButton("Fechar", on_click=lambda e: close_dialog(supplier_dialog))
         ]
     )
 
-    def register_product():
-        # Lógica para registrar o produto pode ser implementada aqui
-        product_dialog.open = False
-        page.update()
-
-    def close_product_dialog():
-        product_dialog.open = False
-        page.update()
-
     def register_supplier():
         # Lógica para registrar o fornecedor pode ser implementada aqui
-        supplier_dialog.open = False
-        page.update()
-
-    def close_supplier_dialog():
         supplier_dialog.open = False
         page.update()
 
@@ -1474,7 +1421,7 @@ def main(page: ft.Page):
             content=ft.Column([
                 ft.ElevatedButton(
                     translations[current_language]["scan_qr_code"],
-                    on_click=lambda e: read_qrcode("exit")
+                    on_click=lambda e: handle_qr_scan("exit")
                 )
             ]),
             actions=[
@@ -1491,7 +1438,7 @@ def main(page: ft.Page):
             content=ft.Column([
                 ft.ElevatedButton(
                     translations[current_language]["scan_qr_code"],
-                    on_click=lambda e: read_qrcode("entry")
+                    on_click=lambda e: handle_qr_scan("entry")
                 )
             ]),
             actions=[
@@ -1568,11 +1515,7 @@ def main(page: ft.Page):
         page.update()
 
     def delete_product(product_id):
-        # Check if user is logged in and is an admin
-        if not page.user or page.user["role"] != "admin":
-            page.show_snack_bar(
-                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
-            )
+        if not check_admin_permission(page):
             return
         
         try:
@@ -1590,10 +1533,7 @@ def main(page: ft.Page):
 
     # Add permission check to the edit_product function as well
     def edit_product(index, name, quantity):
-        if not page.user or page.user["role"] != "admin":
-            page.show_snack_bar(
-                ft.SnackBar(content=ft.Text(translations[current_language]["access_denied"]))
-            )
+        if not check_admin_permission(page):
             return
         
         try:
@@ -1605,7 +1545,6 @@ def main(page: ft.Page):
             )
             connection.commit()
             refresh_product_list()
-            close_edit_dialog()
         except Error as e:
             print(f"Error updating product: {e}")
             page.show_snack_bar(
@@ -1619,5 +1558,5 @@ def main(page: ft.Page):
 # Executar o app
 ft.app(target=main)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+# if __name__ == '__main__':
+#     app.run(host='0.0.0.0', port=5000)
